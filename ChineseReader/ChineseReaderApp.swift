@@ -183,7 +183,8 @@ struct LibraryView: View {
         ) { result in
             switch result {
             case .success(let urls):
-                catalog.add(url: urls.first!)
+                guard let firstUrl = urls.first else { return }
+                catalog.add(url: firstUrl)
             case .failure(let err):
                 importError = err.localizedDescription
             }
