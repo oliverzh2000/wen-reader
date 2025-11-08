@@ -1,6 +1,6 @@
+import Combine
 import SwiftUI
 import UniformTypeIdentifiers
-import Combine
 
 // MARK: - Models
 struct BookItem: Identifiable, Codable, Hashable {
@@ -20,9 +20,15 @@ final class CatalogStore: ObservableObject {
 
     // Where we keep imported copies so we can reopen them later without extra permissions
     private func booksDirectory() -> URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let base = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        )[0]
         let dir = base.appendingPathComponent("Books", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(
+            at: dir,
+            withIntermediateDirectories: true
+        )
         return dir
     }
 
@@ -33,13 +39,21 @@ final class CatalogStore: ObservableObject {
         do {
             // De-dupe by filename or title-ish display name
             let filename = url.lastPathComponent
-            if let idx = books.firstIndex(where: { $0.displayName + ".epub" == filename || $0.displayName == url.deletingPathExtension().lastPathComponent }) {
-                withAnimation { books.move(fromOffsets: IndexSet(integer: idx), toOffset: 0) }
+            if let idx = books.firstIndex(where: {
+                $0.displayName + ".epub" == filename
+                    || $0.displayName
+                        == url.deletingPathExtension().lastPathComponent
+            }) {
+                withAnimation {
+                    books.move(fromOffsets: IndexSet(integer: idx), toOffset: 0)
+                }
                 return
             }
 
             let id = UUID()
-            let dest = booksDirectory().appendingPathComponent("\(id.uuidString).epub")
+            let dest = booksDirectory().appendingPathComponent(
+                "\(id.uuidString).epub"
+            )
             if !FileManager.default.fileExists(atPath: dest.path) {
                 try FileManager.default.copyItem(at: url, to: dest)
             }
@@ -71,14 +85,21 @@ final class CatalogStore: ObservableObject {
     }
 
     private func persist() {
-        do { UserDefaults.standard.set(try JSONEncoder().encode(books), forKey: storageKey) }
-        catch { print("Persist error: \(error)") }
+        do {
+            UserDefaults.standard.set(
+                try JSONEncoder().encode(books),
+                forKey: storageKey
+            )
+        } catch { print("Persist error: \(error)") }
     }
 
     private func restore() {
-        guard let data = UserDefaults.standard.data(forKey: storageKey) else { return }
-        do { books = try JSONDecoder().decode([BookItem].self, from: data) }
-        catch { print("Restore error: \(error)") }
+        guard let data = UserDefaults.standard.data(forKey: storageKey) else {
+            return
+        }
+        do {
+            books = try JSONDecoder().decode([BookItem].self, from: data)
+        } catch { print("Restore error: \(error)") }
     }
 }
 
@@ -112,7 +133,13 @@ struct LibraryView: View {
         List {
             Section("Imported Books") {
                 if catalog.books.isEmpty {
-                    ContentUnavailableView("No books yet", systemImage: "book", description: Text("Tap ‘Add’ to import EPUB files from Files."))
+                    ContentUnavailableView(
+                        "No books yet",
+                        systemImage: "book",
+                        description: Text(
+                            "Tap ‘Add’ to import EPUB files from Files."
+                        )
+                    )
                 } else {
                     ForEach(catalog.books) { book in
                         NavigationLink(value: book) {
@@ -120,10 +147,14 @@ struct LibraryView: View {
                                 Image(systemName: "book.closed")
                                 VStack(alignment: .leading) {
                                     Text(book.displayName).font(.headline)
-                                    Text("EPUB").font(.caption).foregroundStyle(.secondary)
+                                    Text("EPUB").font(.caption).foregroundStyle(
+                                        .secondary
+                                    )
                                 }
                                 Spacer()
-                                Button(role: .destructive) { catalog.remove(book) } label: {
+                                Button(role: .destructive) {
+                                    catalog.remove(book)
+                                } label: {
                                     Image(systemName: "trash")
                                 }.buttonStyle(.borderless)
                             }
@@ -135,13 +166,21 @@ struct LibraryView: View {
         .navigationTitle("Library")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button { showImporter = true } label: { Label("Add", systemImage: "plus") }
+                Button {
+                    showImporter = true
+                } label: {
+                    Label("Add", systemImage: "plus")
+                }
             }
         }
         .navigationDestination(for: BookItem.self) { book in
             ReaderView(book: book)
         }
-        .fileImporter(isPresented: $showImporter, allowedContentTypes: [.epub], allowsMultipleSelection: false) { result in
+        .fileImporter(
+            isPresented: $showImporter,
+            allowedContentTypes: [.epub],
+            allowsMultipleSelection: false
+        ) { result in
             switch result {
             case .success(let urls):
                 catalog.add(url: urls.first!)
@@ -149,9 +188,17 @@ struct LibraryView: View {
                 importError = err.localizedDescription
             }
         }
-        .alert("Import failed", isPresented: Binding(get: { importError != nil }, set: { _ in importError = nil })) {
+        .alert(
+            "Import failed",
+            isPresented: Binding(
+                get: { importError != nil },
+                set: { _ in importError = nil }
+            )
+        ) {
             Button("OK", role: .cancel) {}
-        } message: { Text(importError ?? "Unknown error") }
+        } message: {
+            Text(importError ?? "Unknown error")
+        }
     }
 }
 
@@ -160,14 +207,10 @@ extension UTType {
 }
 
 // MARK: - Reader
-enum ReaderMode: Equatable { case reading, menu }
-
-enum ReaderPanel: String, CaseIterable, Identifiable { case reader = "Reader", chapters = "Chapters", settings = "Settings"; var id: String { rawValue } }
-
 private struct ReaderSurface: View {
     var body: some View {
         Color.red
-            .ignoresSafeArea(edges: [.horizontal]) // or remove entirely, per above
+            .ignoresSafeArea(edges: [.horizontal])  // or remove entirely, per above
             .contentShape(Rectangle())
     }
 }
@@ -177,13 +220,12 @@ struct ReaderView: View {
     @EnvironmentObject private var chrome: ChromeState
 
     let book: BookItem
-    @Environment(\.dismiss) private var dismiss
-    
+
     @State private var showChrome = false
     @State private var showChapters = false
     @State private var showSettings = false
     @State private var completedInitialSync = false
-    
+
     var body: some View {
         ZStack {
             ReaderSurface()
@@ -198,32 +240,32 @@ struct ReaderView: View {
                     withAnimation(.easeInOut) { showChrome.toggle() }
                     chrome.hideStatusBar.toggle()
                 }
-                .buttonStyle(.plain) // keeps it looking like a title
+                .buttonStyle(.plain)  // keeps it looking like a title
             }
             // Trailing toolbar buttons (only when chrome is visible)
-           ToolbarItemGroup(placement: .topBarTrailing) {
-               if showChrome {
-                   // Chapters
-                   Button {
-                       showChapters = true
-                   } label: {
-                       Image(systemName: "list.bullet")
-                   }
-                   .labelStyle(.iconOnly)
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                if showChrome {
+                    // Chapters
+                    Button {
+                        showChapters = true
+                    } label: {
+                        Image(systemName: "list.bullet")
+                    }
+                    .labelStyle(.iconOnly)
 
-                   // Reader display settings ("aA" style icon)
-                   Button {
-                       showSettings = true
-                   } label: {
-                       Image(systemName: "textformat.size") // aA-style symbol
-                   }
-                   .labelStyle(.iconOnly)
-               }
-           }
+                    // Reader display settings ("aA" style icon)
+                    Button {
+                        showSettings = true
+                    } label: {
+                        Image(systemName: "textformat.size")  // aA-style symbol
+                    }
+                    .labelStyle(.iconOnly)
+                }
+            }
         }
         .onAppear {
             guard !completedInitialSync else { return }
-            
+
             // Hide by default on entry.
             chrome.hideStatusBar = !showChrome
             completedInitialSync = true
@@ -240,55 +282,111 @@ struct ReaderView: View {
     }
 }
 
-// MARK: - Panel Placeholders
-struct PanelReaderPlaceholder: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("Reader Tools", systemImage: "book")
-                .font(.headline)
-            Text("Use this area for quick actions like bookmarks, notes, and search.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-            Spacer()
-        }
-        .padding()
-    }
-}
-
+// MARK: - Contents/Settings Sheets
 struct PanelChaptersPlaceholder: View {
+    @Environment(\.dismiss) private var dismiss
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("Chapters", systemImage: "list.bullet")
-                .font(.headline)
-            Text("Populate with table of contents from Readium later.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-            Spacer()
+        NavigationStack {
+            Form {
+            }
+            .navigationTitle("Contents")
+            .navigationBarTitleDisplayMode(.inline)  // “small” title like Settings
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
         }
-        .padding()
     }
 }
 
 struct PanelSettingsPlaceholder: View {
-    @State private var fontSize: Double = 16
-    @State private var margins: Double = 24
+    @State private var showSettings = false
+    @State private var fontName = "Songti SC"
+    @State private var fontSize: Double = 18
+    @State private var lineHeight: Double = 1.5
+    @State private var margins: Double = 1.0
+    @State private var justify = true
+    @State private var theme = "System"
+
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("Settings", systemImage: "gearshape")
-                .font(.headline)
-            LabeledContent("Font size") {
-                Slider(value: $fontSize, in: 12...28, step: 1) { Text("Font size") }
-                    .frame(maxWidth: 240)
+        NavigationStack {
+            Form {
+                Section("Typography") {
+                    Picker("Font", selection: $fontName) {
+                        Text("Songti SC").tag("Songti SC")
+                        Text("PingFang SC").tag("PingFang SC")
+                    }
+                    .pickerStyle(.automatic)
+
+                    VStack(alignment: .leading) {
+                        Text("Font Size")
+                        Slider(value: $fontSize, in: 8.0...32, step: 1.0) {
+                        } minimumValueLabel: {
+                            Text("")
+                        } maximumValueLabel: {
+                            Text("\(Int(fontSize)) pt")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    VStack(alignment: .leading) {
+                        Text("Line Height")
+                        Slider(value: $lineHeight, in: 1.0...2.0, step: 0.05) {
+                        } minimumValueLabel: {
+                            Text("")
+                        } maximumValueLabel: {
+                            Text("\(String(format: "%.1f", lineHeight))")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    VStack(alignment: .leading) {
+                        Text("Margins")
+                        Slider(value: $margins, in: 0.0...1.5, step: 0.1) {
+                        } minimumValueLabel: {
+                            Text("")
+                        } maximumValueLabel: {
+                            Text("\(String(format: "%.1f", margins))")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    Toggle("Justify Text", isOn: $justify)
+                }
+
+                Section("Appearance") {
+                    Picker("Theme", selection: $theme) {
+                        Text("Light").tag("Light")
+                        Text("Dark").tag("Dark")
+                        Text("System").tag("System")
+                    }
+                    .pickerStyle(.automatic)
+                }
+
+                Section {
+                    Button("Reset to Defaults", role: .destructive) {
+                        // reset values
+                        fontName = "Songti SC"
+                        fontSize = 18
+                        justify = true
+                        lineHeight = 1.5
+                        margins = 1.0
+                        theme = "System"
+                    }
+                }
             }
-            LabeledContent("Margins") {
-                Slider(value: $margins, in: 0...48, step: 4) { Text("Margins") }
-                    .frame(maxWidth: 240)
+            .navigationTitle("Reading Settings")
+            .navigationBarTitleDisplayMode(.inline)  // “small” title like Settings
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
             }
-            Toggle("Dark mode (placeholder)", isOn: .constant(false)).disabled(true)
-            Spacer()
         }
-        .padding()
     }
 }
 
