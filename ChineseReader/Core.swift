@@ -5,9 +5,9 @@
 //  Created by Oliver Zhang on 2025-11-08.
 //
 
-import SwiftUI
-import Foundation
 import Combine
+import Foundation
+import SwiftUI
 import UniformTypeIdentifiers
 
 // MARK: - Models
@@ -44,14 +44,19 @@ final class CatalogStore: ObservableObject {
                 // De-dupe by display name
                 if books.contains(where: { $0.displayName == name }) { return }
 
-                let id   = UUID()
-                let dest = FileManager.appSupportBooksDir.appendingPathComponent("\(id.uuidString).epub")
+                let id = UUID()
+                let dest = FileManager.appSupportBooksDir
+                    .appendingPathComponent("\(id.uuidString).epub")
 
                 if !FileManager.default.fileExists(atPath: dest.path) {
                     try FileManager.default.copyItem(at: url, to: dest)
                 }
 
-                let item = BookItem(id: id, displayName: name, relativePath: dest.lastPathComponent)
+                let item = BookItem(
+                    id: id,
+                    displayName: name,
+                    relativePath: dest.lastPathComponent
+                )
 
                 await MainActor.run { [weak self] in
                     self?.books.insert(item, at: 0)
@@ -62,8 +67,12 @@ final class CatalogStore: ObservableObject {
         }
     }
 
-    /// Remove from catalog only (keeps sandboxed copy to honor “don’t delete from disk”).
+    /// Delete from catalog and the sandboxed copy that was created on import.
     func remove(_ book: BookItem) {
+        let local = localURL(for: book)
+        
+        try? FileManager.default.removeItem(at: local)
+
         guard let idx = books.firstIndex(of: book) else { return }
         books.remove(at: idx)
     }
@@ -76,7 +85,11 @@ final class CatalogStore: ObservableObject {
         Defaults.setCodable(books, forKey: storageKey)
     }
     private func restore() {
-        books = Defaults.codable([BookItem].self, forKey: storageKey, default: [])
+        books = Defaults.codable(
+            [BookItem].self,
+            forKey: storageKey,
+            default: []
+        )
     }
 }
 
@@ -87,24 +100,35 @@ enum Defaults {
             UserDefaults.standard.set(data, forKey: key)
         }
     }
-    static func codable<T: Codable>(_ type: T.Type, forKey key: String, default def: T) -> T {
+    static func codable<T: Codable>(
+        _ type: T.Type,
+        forKey key: String,
+        default def: T
+    ) -> T {
         guard let data = UserDefaults.standard.data(forKey: key),
-              let decoded = try? JSONDecoder().decode(type, from: data) else { return def }
+            let decoded = try? JSONDecoder().decode(type, from: data)
+        else { return def }
         return decoded
     }
 }
 
 // MARK: - Utilities
 enum Log {
-    nonisolated static func info(_ msg: String)  { print("I:  \(msg)") }
+    nonisolated static func info(_ msg: String) { print("I:  \(msg)") }
     nonisolated static func error(_ msg: String) { print("E: \(msg)") }
 }
 
 extension FileManager {
     nonisolated static var appSupportBooksDir: URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let dir  = base.appendingPathComponent("Books", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let base = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        )[0]
+        let dir = base.appendingPathComponent("Books", isDirectory: true)
+        try? FileManager.default.createDirectory(
+            at: dir,
+            withIntermediateDirectories: true
+        )
         return dir
     }
 }
