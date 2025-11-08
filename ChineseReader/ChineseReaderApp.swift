@@ -137,7 +137,7 @@ struct LibraryView: View {
                         "No books yet",
                         systemImage: "book",
                         description: Text(
-                            "Tap ‘Add’ to import EPUB files from Files."
+                            "Tap the '+' button to add books."
                         )
                     )
                 } else {
@@ -165,7 +165,7 @@ struct LibraryView: View {
         }
         .navigationTitle("Library")
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: .bottomBar) {
                 Button {
                     showImporter = true
                 } label: {
@@ -199,6 +199,7 @@ struct LibraryView: View {
         } message: {
             Text(importError ?? "Unknown error")
         }
+        .scrollBounceBehavior(.basedOnSize)
     }
 }
 
