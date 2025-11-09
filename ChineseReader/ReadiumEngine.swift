@@ -14,6 +14,11 @@ import SwiftUI
 
 typealias RLink = ReadiumShared.Link
 
+extension FontFamily {
+    public static let notoSerifSC: FontFamily = "Noto Serif SC"
+    public static let pingFangSC: FontFamily = "PingFang SC"
+}
+
 @MainActor
 final class ReadiumEngine: ObservableObject {
     // MARK: Outputs for the UI
@@ -82,9 +87,26 @@ final class ReadiumEngine: ObservableObject {
             }
 
             let initial = loadLastLocation()
+            let resources = Bundle.main.resourceURL!  // Bundle root
             let navigator = try EPUBNavigatorViewController(
                 publication: pub,
                 initialLocation: initial,
+                config: .init(
+                    fontFamilyDeclarations: [
+                        CSSFontFamilyDeclaration(
+                            fontFamily: .notoSerifSC,
+                            fontFaces: [
+                                CSSFontFace(
+                                    file: FileURL(
+                                        url: resources.appendingPathComponent("NotoSerifSC-VariableFont_wght.ttf")
+                                    )!,
+                                    style: .normal,
+                                    weight: .variable(200...900)
+                                )
+                            ]
+                        ).eraseToAnyHTMLFontFamilyDeclaration()
+                    ]
+                ),
                 httpServer: httpServer
             )
             navigator.delegate = self
@@ -151,7 +173,12 @@ extension ReadiumEngine: EPUBNavigatorDelegate {
         let editor = nav.editor(of: preferences)
 
         // 2. Modify the preferences through the editor.
-        //        editor.fontFamily.set() // TODO
+        switch s.font {
+        case .notoSerifSC:
+            editor.fontFamily.set(.notoSerifSC)
+        case .pingFangSC:
+            editor.fontFamily.set(.pingFangSC)
+        }
         switch s.theme {
         case .light:
             editor.theme.set(.light)

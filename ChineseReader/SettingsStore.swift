@@ -10,15 +10,15 @@ import Foundation
 
 // MARK: - Enums
 enum ReaderFont: String, CaseIterable, Codable, Identifiable {
-    case songti
-    case pingfang
+    case notoSerifSC
+    case pingFangSC
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
-        case .songti: return "Songti (宋体)"
-        case .pingfang: return "PingFang (苹方)"
+        case .notoSerifSC: return "Noto Serif SC"
+        case .pingFangSC: return "PingFang SC"
         }
     }
 }
@@ -39,7 +39,7 @@ enum ReaderTheme: String, CaseIterable, Codable, Identifiable {
 
 // MARK: - Default settings
 struct ReaderSettings: Codable, Equatable {
-    var font: ReaderFont = .songti
+    var font: ReaderFont = .notoSerifSC
     var fontSize: Double = 1.0
     var lineHeight: Double = 1.5
     var margins: Double = 1.0

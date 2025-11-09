@@ -246,8 +246,8 @@ struct SettingsSheet: View {
             Form {
                 Section("Typography") {
                     Picker("Font", selection: $settingsStore.settings.font) {
-                        Text("Songti SC").tag(ReaderFont.songti)
-                        Text("PingFang SC").tag(ReaderFont.pingfang)
+                        Text("Songti SC").tag(ReaderFont.notoSerifSC)
+                        Text("PingFang SC").tag(ReaderFont.pingFangSC)
                     }
                     .pickerStyle(.automatic)
 
