@@ -11,6 +11,7 @@ import SwiftUI
 // MARK: - Surface
 private struct ReaderSurface: View {
     @ObservedObject var engine: ReadiumEngine
+    @EnvironmentObject var settingsStore: SettingsStore
 
     var body: some View {
         Group {
@@ -30,6 +31,14 @@ private struct ReaderSurface: View {
                     // From investigation using Safari inspect element, seems that
                     // Readium is adding it's own stubborn margin between html element and the edge of the NavigatorHost.
                     .ignoresSafeArea(edges: .bottom)
+                    .onAppear {
+                        engine.apply(settingsStore.settings)
+                    }
+                    .onChange(of: settingsStore.settings) {
+                        oldSettings,
+                        newSettings in
+                        engine.apply(newSettings)
+                    }
             } else {
                 Text("No content")
             }
@@ -228,12 +237,7 @@ extension RLink {
 }
 
 struct SettingsSheet: View {
-    @State private var fontName = "Songti SC"
-    @State private var fontSize: Double = 18
-    @State private var lineHeight: Double = 1.5
-    @State private var margins: Double = 1.0
-    @State private var justify = true
-    @State private var theme = "System"
+    @EnvironmentObject var settingsStore: SettingsStore
 
     @Environment(\.dismiss) private var dismiss
 
@@ -241,66 +245,81 @@ struct SettingsSheet: View {
         NavigationStack {
             Form {
                 Section("Typography") {
-                    Picker("Font", selection: $fontName) {
-                        Text("Songti SC").tag("Songti SC")
-                        Text("PingFang SC").tag("PingFang SC")
+                    Picker("Font", selection: $settingsStore.settings.font) {
+                        Text("Songti SC").tag(ReaderFont.songti)
+                        Text("PingFang SC").tag(ReaderFont.pingfang)
                     }
                     .pickerStyle(.automatic)
 
                     VStack(alignment: .leading) {
                         Text("Font Size")
-                        Slider(value: $fontSize, in: 8.0...32, step: 1.0) {
+                        Slider(
+                            value: $settingsStore.settings.fontSize,
+                            in: 1.0...2.0,
+                            step: 0.1
+                        ) {
                         } minimumValueLabel: {
                             Text("")
                         } maximumValueLabel: {
-                            Text("\(Int(fontSize)) pt").foregroundStyle(
-                                .secondary
+                            Text(
+                                "\(String(format: "%.1f", settingsStore.settings.fontSize))"
                             )
+                            .foregroundStyle(.secondary)
                         }
                     }
 
                     VStack(alignment: .leading) {
                         Text("Line Height")
-                        Slider(value: $lineHeight, in: 1.0...2.0, step: 0.05) {
+                        Slider(
+                            value: $settingsStore.settings.lineHeight,
+                            in: 1.0...2.0,
+                            step: 0.05
+                        ) {
                         } minimumValueLabel: {
                             Text("")
                         } maximumValueLabel: {
-                            Text("\(String(format: "%.1f", lineHeight))")
-                                .foregroundStyle(.secondary)
+                            Text(
+                                "\(String(format: "%.1f", settingsStore.settings.lineHeight))"
+                            )
+                            .foregroundStyle(.secondary)
                         }
                     }
 
                     VStack(alignment: .leading) {
                         Text("Margins")
-                        Slider(value: $margins, in: 0.0...1.5, step: 0.1) {
+                        Slider(
+                            value: $settingsStore.settings.margins,
+                            in: 0.0...1.5,
+                            step: 0.1
+                        ) {
                         } minimumValueLabel: {
                             Text("")
                         } maximumValueLabel: {
-                            Text("\(String(format: "%.1f", margins))")
-                                .foregroundStyle(.secondary)
+                            Text(
+                                "\(String(format: "%.1f", settingsStore.settings.margins))"
+                            )
+                            .foregroundStyle(.secondary)
                         }
                     }
 
-                    Toggle("Justify Text", isOn: $justify)
+                    Toggle(
+                        "Justify Text",
+                        isOn: $settingsStore.settings.justify
+                    )
                 }
 
                 Section("Appearance") {
-                    Picker("Theme", selection: $theme) {
-                        Text("Light").tag("Light")
-                        Text("Dark").tag("Dark")
-                        Text("System").tag("System")
+                    Picker("Theme", selection: $settingsStore.settings.theme) {
+                        Text("Light").tag(ReaderTheme.light)
+                        Text("Dark").tag(ReaderTheme.dark)
+                        Text("Sepia").tag(ReaderTheme.sepia)
                     }
                     .pickerStyle(.automatic)
                 }
 
                 Section {
                     Button("Reset to Defaults", role: .destructive) {
-                        fontName = "Songti SC"
-                        fontSize = 18
-                        lineHeight = 1.5
-                        margins = 1.0
-                        justify = true
-                        theme = "System"
+                        settingsStore.settings = ReaderSettings()
                     }
                 }
             }

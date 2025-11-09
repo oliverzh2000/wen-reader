@@ -1,5 +1,5 @@
 //
-//  Core.swift
+//  Catalog.swift
 //  ChineseReader
 //
 //  Created by Oliver Zhang on 2025-11-08.

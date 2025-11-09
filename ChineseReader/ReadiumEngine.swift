@@ -140,4 +140,21 @@ extension ReadiumEngine: EPUBNavigatorDelegate {
         currentLocation = locator
         saveLastLocation(locator)
     }
+
+    func apply(_ s: ReaderSettings) {
+        guard let nav = navigatorVC else { return }
+
+        // 1. Create a preferences editor.
+        let preferences = EPUBPreferences(
+            publisherStyles: false
+        )
+        let editor = nav.editor(of: preferences)
+
+        // 2. Modify the preferences through the editor.
+        //        editor.fontFamily.set() // TODO
+        editor.fontSize.set(s.fontSize)
+
+        // 3. Submit the edited preferences.
+        nav.submitPreferences(editor.preferences)
+    }
 }
