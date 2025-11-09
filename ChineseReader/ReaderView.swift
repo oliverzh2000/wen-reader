@@ -24,72 +24,13 @@ private struct ReaderSurface: View {
                 }
                 .padding()
             } else if let nav = engine.navigatorVC {
+                // Readium's EPUB rendering window.
                 NavigatorHost(navigatorVC: nav)
-                    .ignoresSafeArea()  // Let the navigator fill the screen under your chrome if desired
             } else {
                 Text("No content")
             }
         }
-    }
-}
-
-// MARK: - Chrome Modifier
-struct ReaderChromeModifier: SwiftUI.ViewModifier {
-    @EnvironmentObject private var chrome: UiState
-    let title: String
-    @Binding var showChrome: Bool
-    @Binding var showChapters: Bool
-    @Binding var showSettings: Bool
-
-    // Disambiguate SwiftUI's Content explicitly for this modifier type.
-    // Namespace collision between SwiftUI and ReadiumShared Content!
-    typealias Content = SwiftUI._ViewModifier_Content<ReaderChromeModifier>
-
-    func body(content: Content) -> some View {
-        content
-            .statusBarHidden(!showChrome)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Button(title) {
-                        withAnimation(.easeInOut) { showChrome.toggle() }
-                        chrome.hideStatusBar.toggle()
-                    }
-                    .buttonStyle(.plain)
-                }
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    if showChrome {
-                        Button {
-                            showChapters = true
-                        } label: {
-                            Image(systemName: "list.bullet")
-                        }
-                        Button {
-                            showSettings = true
-                        } label: {
-                            Image(systemName: "textformat.size")
-                        }
-                    }
-                }
-            }
-            .navigationBarBackButtonHidden(!showChrome)
-    }
-}
-
-extension View {
-    func readerChrome(
-        title: String,
-        showChrome: Binding<Bool>,
-        showChapters: Binding<Bool>,
-        showSettings: Binding<Bool>
-    ) -> some View {
-        modifier(
-            ReaderChromeModifier(
-                title: title,
-                showChrome: showChrome,
-                showChapters: showChapters,
-                showSettings: showSettings
-            )
-        )
+        .background(Color.red)
     }
 }
 
@@ -160,6 +101,66 @@ struct ReaderView: View {
     }
 }
 
+// MARK: - Chrome Modifier
+struct ReaderChromeModifier: SwiftUI.ViewModifier {
+    @EnvironmentObject private var chrome: UiState
+    let title: String
+    @Binding var showChrome: Bool
+    @Binding var showChapters: Bool
+    @Binding var showSettings: Bool
+
+    // Disambiguate SwiftUI's Content explicitly for this modifier type.
+    // Namespace collision between SwiftUI and ReadiumShared Content!
+    typealias Content = SwiftUI._ViewModifier_Content<ReaderChromeModifier>
+
+    func body(content: Content) -> some View {
+        content
+            .statusBarHidden(!showChrome)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Button(title) {
+                        withAnimation(.easeInOut) { showChrome.toggle() }
+                        chrome.hideStatusBar.toggle()
+                    }
+                    .buttonStyle(.plain)
+                }
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    if showChrome {
+                        Button {
+                            showChapters = true
+                        } label: {
+                            Image(systemName: "list.bullet")
+                        }
+                        Button {
+                            showSettings = true
+                        } label: {
+                            Image(systemName: "textformat.size")
+                        }
+                    }
+                }
+            }
+            .navigationBarBackButtonHidden(!showChrome)
+    }
+}
+
+extension View {
+    func readerChrome(
+        title: String,
+        showChrome: Binding<Bool>,
+        showChapters: Binding<Bool>,
+        showSettings: Binding<Bool>
+    ) -> some View {
+        modifier(
+            ReaderChromeModifier(
+                title: title,
+                showChrome: showChrome,
+                showChapters: showChapters,
+                showSettings: showSettings
+            )
+        )
+    }
+}
+
 // MARK: - Bottom Sheets
 struct TableOfContentsSheet: View {
     let publication: Publication?
@@ -167,6 +168,8 @@ struct TableOfContentsSheet: View {
 
     @State private var tocLinks: [RLink] = []
     @State private var isLoading = true
+    
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
@@ -179,13 +182,20 @@ struct TableOfContentsSheet: View {
                     List {
                         ForEach(flattenTOC(tocLinks), id: \.hrefOrId) { link in
                             Button(link.title ?? link.hrefOrId) {
-                                onSelect(link)  // <- pass the Link directly
+                                onSelect(link)
+                                dismiss()
                             }
                         }
                     }
                 }
             }
-            .navigationTitle("Chapters")
+            .navigationTitle("Contents")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
         }
         .task { await loadTOC() }
     }
