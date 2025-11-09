@@ -26,11 +26,14 @@ private struct ReaderSurface: View {
             } else if let nav = engine.navigatorVC {
                 // Readium's EPUB rendering window.
                 NavigatorHost(navigatorVC: nav)
+                    // TODO: Fix the source of the extra top/bottom margins.
+                    // From investigation using Safari inspect element, seems that
+                    // Readium is adding it's own stubborn margin between html element and the edge of the NavigatorHost.
+                    .ignoresSafeArea(edges: .bottom)
             } else {
                 Text("No content")
             }
         }
-        .background(Color.red)
     }
 }
 
@@ -168,7 +171,7 @@ struct TableOfContentsSheet: View {
 
     @State private var tocLinks: [RLink] = []
     @State private var isLoading = true
-    
+
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
