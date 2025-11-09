@@ -273,7 +273,7 @@ struct SettingsSheet: View {
                         Slider(
                             value: $settingsStore.settings.lineHeight,
                             in: 1.0...2.0,
-                            step: 0.05
+                            step: 0.1
                         ) {
                         } minimumValueLabel: {
                             Text("")
@@ -289,7 +289,7 @@ struct SettingsSheet: View {
                         Text("Margins")
                         Slider(
                             value: $settingsStore.settings.margins,
-                            in: 0.0...1.5,
+                            in: 0.0...2.0,
                             step: 0.1
                         ) {
                         } minimumValueLabel: {

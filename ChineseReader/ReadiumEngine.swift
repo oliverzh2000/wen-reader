@@ -152,7 +152,23 @@ extension ReadiumEngine: EPUBNavigatorDelegate {
 
         // 2. Modify the preferences through the editor.
         //        editor.fontFamily.set() // TODO
+        switch s.theme {
+        case .light:
+            editor.theme.set(.light)
+        case .dark:
+            editor.theme.set(.dark)
+        case .sepia:
+            editor.theme.set(.sepia)
+        }
+
+        // The following prefs can potentially cause a reflow of the document.
+        // TODO: save location before reflow and restore it at next "layout finished" callback.
         editor.fontSize.set(s.fontSize)
+        editor.lineHeight.set(s.lineHeight)
+        editor.pageMargins.set(s.margins)
+        editor.textAlign.set(
+            s.justify ? TextAlignment.justify : TextAlignment.start
+        )
 
         // 3. Submit the edited preferences.
         nav.submitPreferences(editor.preferences)

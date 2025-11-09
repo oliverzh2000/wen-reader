@@ -40,7 +40,7 @@ enum ReaderTheme: String, CaseIterable, Codable, Identifiable {
 // MARK: - Default settings
 struct ReaderSettings: Codable, Equatable {
     var font: ReaderFont = .songti
-    var fontSize: Double = 18
+    var fontSize: Double = 1.0
     var lineHeight: Double = 1.5
     var margins: Double = 1.0
     var justify: Bool = true
