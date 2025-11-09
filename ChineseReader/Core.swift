@@ -70,7 +70,7 @@ final class CatalogStore: ObservableObject {
     /// Delete from catalog and the sandboxed copy that was created on import.
     func remove(_ book: BookItem) {
         let local = localURL(for: book)
-        
+
         try? FileManager.default.removeItem(at: local)
 
         guard let idx = books.firstIndex(of: book) else { return }
