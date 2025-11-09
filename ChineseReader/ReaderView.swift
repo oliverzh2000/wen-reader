@@ -114,7 +114,7 @@ struct ReaderView: View {
                     }
                 }
             )
-            .presentationDetents([.medium, .large])
+            .presentationDetents([.large])
         }
         .sheet(isPresented: $showSettings) {
             SettingsSheet()
@@ -126,6 +126,7 @@ struct ReaderView: View {
 // MARK: - Chrome Modifier
 struct ReaderChromeModifier: SwiftUI.ViewModifier {
     @EnvironmentObject private var chrome: UiState
+    @EnvironmentObject var settingsStore: SettingsStore
     let title: String
     @Binding var showChrome: Bool
     @Binding var showChapters: Bool
@@ -140,18 +141,37 @@ struct ReaderChromeModifier: SwiftUI.ViewModifier {
             .statusBarHidden(!showChrome)
             .toolbar {
                 ToolbarItem(placement: .principal) {
-                    Button(title) {
-                        withAnimation(.easeInOut) { showChrome.toggle() }
-                        chrome.hideStatusBar.toggle()
+                    // Title acts like a button to open chapters
+                    Button {
+                        UIImpactFeedbackGenerator(style: .light)
+                            .impactOccurred()
+                        withAnimation(.easeInOut) {
+                            showChrome = true
+                            chrome.hideStatusBar = false
+                        }
+                        showChapters = true
+                    } label: {
+                        HStack {
+                            Text(title).lineLimit(1)
+                            Image(systemName: "chevron.right")  // subtle disclosure cue
+                                .font(.footnote.weight(.semibold))
+                                .opacity(0.6)
+                        }
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     if showChrome {
+                        // Magnifier mode toggle
                         Button {
-                            showChapters = true
+                            settingsStore.settings.magnifierMode.toggle()
                         } label: {
-                            Image(systemName: "list.bullet")
+                            Image(
+                                systemName: settingsStore.settings.magnifierMode
+                                    == .magic
+                                    ? "sparkles" : "text.magnifyingglass"
+                            )
                         }
                         Button {
                             showSettings = true

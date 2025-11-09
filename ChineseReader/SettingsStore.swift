@@ -9,6 +9,21 @@ import Combine
 import Foundation
 
 // MARK: - Enums
+enum MagnifierMode: String, CaseIterable, Codable, Identifiable {
+    case magic  // with inline pinyin/definition under magnifier
+    case system  // default iOS selection
+
+    var id: String { rawValue }
+
+    mutating func toggle() {
+        if self == .magic {
+            self = .system
+        } else {
+            self = .magic
+        }
+    }
+}
+
 enum ReaderFont: String, CaseIterable, Codable, Identifiable {
     case notoSerifSC
     case pingFangSC
@@ -39,6 +54,7 @@ enum ReaderTheme: String, CaseIterable, Codable, Identifiable {
 
 // MARK: - Default settings
 struct ReaderSettings: Codable, Equatable {
+    var magnifierMode: MagnifierMode = .system
     var font: ReaderFont = .notoSerifSC
     var fontSize: Double = 1.0
     var lineHeight: Double = 1.5
