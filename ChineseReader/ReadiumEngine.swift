@@ -98,7 +98,9 @@ final class ReadiumEngine: ObservableObject {
                             fontFaces: [
                                 CSSFontFace(
                                     file: FileURL(
-                                        url: resources.appendingPathComponent("NotoSerifSC-VariableFont_wght.ttf")
+                                        url: resources.appendingPathComponent(
+                                            "NotoSerifSC-VariableFont_wght.ttf"
+                                        )
                                     )!,
                                     style: .normal,
                                     weight: .variable(200...900)
@@ -199,5 +201,20 @@ extension ReadiumEngine: EPUBNavigatorDelegate {
 
         // 3. Submit the edited preferences.
         nav.submitPreferences(editor.preferences)
+    }
+
+    // Use this for reliable and link-friendly tapping.
+    func installInputObservers(
+        onSingleTap: @escaping () -> Void
+    ) {
+        guard let nav = navigatorVC else { return }
+
+        // Single tap anywhere
+        nav.addObserver(
+            .tap { event in
+                onSingleTap()
+                return false  // don't consume; let links/images still receive the tap
+            }
+        )
     }
 }

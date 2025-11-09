@@ -92,6 +92,16 @@ struct ReaderView: View {
                     fileURL: url,
                     sender: rootView
                 )
+
+                engine.installInputObservers(
+                    onSingleTap: {
+                        // Toggle chrome on any single tap
+                        withAnimation(.easeInOut) {
+                            showChrome.toggle()
+                            chrome.hideStatusBar = !showChrome
+                        }
+                    },
+                )
             }
         }
         .sheet(isPresented: $showChapters) {
