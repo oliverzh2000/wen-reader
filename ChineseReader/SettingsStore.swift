@@ -56,7 +56,7 @@ enum ReaderTheme: String, CaseIterable, Codable, Identifiable {
 struct ReaderSettings: Codable, Equatable {
     var magnifierMode: MagnifierMode = .system
     var font: ReaderFont = .notoSerifSC
-    var fontSize: Double = 1.0
+    var fontSize: Double = 1.5
     var lineHeight: Double = 1.5
     var margins: Double = 1.0
     var justify: Bool = true
