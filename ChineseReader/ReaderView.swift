@@ -12,6 +12,7 @@ import SwiftUI
 private struct ReaderSurface: View {
     @ObservedObject var engine: ReadiumEngine
     @EnvironmentObject var settingsStore: SettingsStore
+    @Environment(\.colorScheme) private var systemColorScheme
 
     var body: some View {
         Group {
@@ -32,12 +33,13 @@ private struct ReaderSurface: View {
                     // Readium is adding it's own stubborn margin between html element and the edge of the NavigatorHost.
                     .ignoresSafeArea(edges: .bottom)
                     .onAppear {
-                        engine.apply(settingsStore.settings)
+                        engine.apply(settingsStore.settings, systemColorScheme)
                     }
-                    .onChange(of: settingsStore.settings) {
-                        oldSettings,
-                        newSettings in
-                        engine.apply(newSettings)
+                    .onChange(of: systemColorScheme) { _, _ in
+                        engine.apply(settingsStore.settings, systemColorScheme)
+                    }
+                    .onChange(of: settingsStore.settings) { _, newSettings in
+                        engine.apply(newSettings, systemColorScheme)
                     }
             } else {
                 Text("No content")
@@ -276,8 +278,9 @@ struct SettingsSheet: View {
             Form {
                 Section("Typography") {
                     Picker("Font", selection: $settingsStore.settings.font) {
-                        Text("Songti SC").tag(ReaderFont.notoSerifSC)
-                        Text("PingFang SC").tag(ReaderFont.pingFangSC)
+                        ForEach(ReaderFont.allCases) { font in
+                            Text(font.displayName).tag(font)
+                        }
                     }
                     .pickerStyle(.automatic)
 
@@ -340,9 +343,9 @@ struct SettingsSheet: View {
 
                 Section("Appearance") {
                     Picker("Theme", selection: $settingsStore.settings.theme) {
-                        Text("Light").tag(ReaderTheme.light)
-                        Text("Dark").tag(ReaderTheme.dark)
-                        Text("Sepia").tag(ReaderTheme.sepia)
+                        ForEach(ReaderTheme.allCases) { theme in
+                            Text(theme.displayName).tag(theme)
+                        }
                     }
                     .pickerStyle(.automatic)
                 }

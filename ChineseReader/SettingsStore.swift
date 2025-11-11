@@ -39,7 +39,7 @@ enum ReaderFont: String, CaseIterable, Codable, Identifiable {
 }
 
 enum ReaderTheme: String, CaseIterable, Codable, Identifiable {
-    case light, dark, sepia
+    case light, dark, sepia, system
 
     var id: String { rawValue }
 
@@ -48,6 +48,7 @@ enum ReaderTheme: String, CaseIterable, Codable, Identifiable {
         case .light: return "Light"
         case .dark: return "Dark"
         case .sepia: return "Sepia"
+        case .system: return "System"
         }
     }
 }
@@ -60,7 +61,7 @@ struct ReaderSettings: Codable, Equatable {
     var lineHeight: Double = 1.5
     var margins: Double = 1.0
     var justify: Bool = true
-    var theme: ReaderTheme = .light
+    var theme: ReaderTheme = .system
 }
 
 // MARK: - SettingsStore

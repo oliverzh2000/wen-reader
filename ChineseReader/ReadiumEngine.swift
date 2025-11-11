@@ -21,7 +21,7 @@ extension FontFamily {
 
 @MainActor
 final class ReadiumEngine: ObservableObject {
-    // MARK: Outputs for the UI
+    // Outputs for the UI
     @Published var publication: Publication?
     @Published var navigatorVC: EPUBNavigatorViewController?
     @Published var openError: Error?
@@ -165,7 +165,7 @@ extension ReadiumEngine: EPUBNavigatorDelegate {
         saveLastLocation(locator)
     }
 
-    func apply(_ s: ReaderSettings) {
+    func apply(_ s: ReaderSettings, _ systemColorScheme: ColorScheme) {
         guard let nav = navigatorVC else { return }
 
         // 1. Create a preferences editor.
@@ -181,6 +181,7 @@ extension ReadiumEngine: EPUBNavigatorDelegate {
         case .pingFangSC:
             editor.fontFamily.set(.pingFangSC)
         }
+
         switch s.theme {
         case .light:
             editor.theme.set(.light)
@@ -188,6 +189,8 @@ extension ReadiumEngine: EPUBNavigatorDelegate {
             editor.theme.set(.dark)
         case .sepia:
             editor.theme.set(.sepia)
+        case .system:
+            editor.theme.set(systemColorScheme == .light ? .light : .dark)
         }
 
         // The following prefs can potentially cause a reflow of the document.
