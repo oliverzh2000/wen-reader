@@ -9,17 +9,17 @@ import Combine
 import Foundation
 
 // MARK: - Enums
-enum MagnifierMode: String, CaseIterable, Codable, Identifiable {
-    case magic  // with inline pinyin/definition under magnifier
-    case system  // default iOS selection
+enum ReaderInteractionMode: String, CaseIterable, Codable, Identifiable {
+    case customMagnifier  // with inline pinyin/definition under magnifier
+    case systemSelection  // default iOS selection
 
     var id: String { rawValue }
 
     mutating func toggle() {
-        if self == .magic {
-            self = .system
+        if self == .customMagnifier {
+            self = .systemSelection
         } else {
-            self = .magic
+            self = .customMagnifier
         }
     }
 }
@@ -55,7 +55,7 @@ enum ReaderTheme: String, CaseIterable, Codable, Identifiable {
 
 // MARK: - Default settings
 struct ReaderSettings: Codable, Equatable {
-    var magnifierMode: MagnifierMode = .system
+    var interactionMode: ReaderInteractionMode = .systemSelection
     var font: ReaderFont = .notoSerifSC
     var fontSize: Double = 1.5
     var lineHeight: Double = 1.5

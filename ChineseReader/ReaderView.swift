@@ -165,13 +165,13 @@ struct ReaderChromeModifier: SwiftUI.ViewModifier {
                 }
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     if showChrome {
-                        // Magnifier mode toggle
+                        // Reader interaction mode toggle
                         Button {
-                            settingsStore.settings.magnifierMode.toggle()
+                            settingsStore.settings.interactionMode.toggle()
                         } label: {
                             Image(
-                                systemName: settingsStore.settings.magnifierMode
-                                    == .magic
+                                systemName: settingsStore.settings.interactionMode
+                                    == .customMagnifier
                                     ? "sparkles" : "text.magnifyingglass"
                             )
                         }
