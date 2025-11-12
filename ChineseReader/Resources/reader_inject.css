@@ -1,12 +1,24 @@
-/* Applied when we disable system selection in Magic Magnifier mode */
-html.cr-nonselectable, html.cr-nonselectable body, html.cr-nonselectable * {
+/* Disable system selection when html has this class */
+html.cr-nonselectable,
+html.cr-nonselectable body,
+html.cr-nonselectable * {
   -webkit-user-select: none !important;
   user-select: none !important;
   -webkit-touch-callout: none !important;
 }
 
-/* (Optional) Cursor hint for trackpads/mice */
+/* Optional: cursor hint for trackpads/mice */
 html.cr-nonselectable * {
   cursor: default !important;
 }
 
+/* Highlighted segmented word */
+.cr-word-highlight {
+  background-color: rgba(120, 170, 255, 0.4);
+  border-radius: 4px;
+}
+
+/* Optional: base word span class (no visible style yet) */
+.cr-word {
+  border-radius: 4px;
+}

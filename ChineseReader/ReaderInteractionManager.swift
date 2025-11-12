@@ -6,14 +6,13 @@
 //
 
 import Foundation
+import ReadiumNavigator
 import UIKit
 import WebKit
-import ReadiumNavigator
 
 /// Owns: selection toggle JS, long-press gesture, and reapplication on chapter changes.
 @MainActor
 final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
-
     enum Mode {
         case systemSelection
         case customMagnifier
@@ -27,17 +26,38 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
     // Cache JS/CSS payloads from bundle
     private let injectJS: String
     private let injectCSS: String
+    
+    // Haptics used on magnifier start and user dragging to new word.
+    private let impactFeedback = UIImpactFeedbackGenerator(style: .light)
 
     override init() {
         // Load the files once (fail-quiet with empty string if missing)
-        self.injectJS = (try? ReaderInteractionManager.loadBundledText(named: "reader_inject", ext: "js")) ?? ""
-        self.injectCSS = (try? ReaderInteractionManager.loadBundledText(named: "reader_inject", ext: "css")) ?? ""
+        self.injectJS =
+            (try? ReaderInteractionManager.loadBundledText(
+                named: "reader_inject",
+                ext: "js"
+            )) ?? ""
+        self.injectCSS =
+            (try? ReaderInteractionManager.loadBundledText(
+                named: "reader_inject",
+                ext: "css"
+            )) ?? ""
         super.init()
     }
 
-    static private func loadBundledText(named: String, ext: String) throws -> String {
-        guard let url = Bundle.main.url(forResource: named, withExtension: ext) else {
-            throw NSError(domain: "ReaderInteractionManager", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing \(named).\(ext) in bundle"])
+    static private func loadBundledText(named: String, ext: String) throws
+        -> String
+    {
+        guard let url = Bundle.main.url(forResource: named, withExtension: ext)
+        else {
+            throw NSError(
+                domain: "ReaderInteractionManager",
+                code: 1,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "Missing \(named).\(ext) in bundle"
+                ]
+            )
         }
         return try String(contentsOf: url, encoding: .utf8)
     }
@@ -51,7 +71,7 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
         // We do document-end injection by evaluating scripts after load.
         // If you later move to WKUserScript(.atDocumentStart), wire that at navigator creation time.
         injectHelpersIntoAllVisibleWebViews()
-        applyMode(currentMode) // in case bind happens after a mode is already chosen
+        applyMode(currentMode)  // in case bind happens after a mode is already chosen
     }
 
     func setMode(_ mode: Mode) {
@@ -79,54 +99,60 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
     }
 
     private func enableSystemSelection() {
-        evalInAllWebViews("""
-          try { window.CR && window.CR.setSelectable(true); } catch(e) { /* noop */ }
-        """)
+        evalInAllWebViews(
+            """
+              try { window.CR && window.CR.setSelectable(true); } catch(e) { /* noop */ }
+            """
+        )
     }
 
     private func disableSystemSelection() {
-        evalInAllWebViews("""
-          try { window.CR && window.CR.setSelectable(false); } catch(e) { /* noop */ }
-        """)
+        evalInAllWebViews(
+            """
+              try { window.CR && window.CR.setSelectable(false); } catch(e) { /* noop */ }
+            """
+        )
     }
 
     private func injectHelpersIntoAllVisibleWebViews() {
         // 1) Inject CSS (once per doc) by appending a <style> tag
-        let escapedCSS = injectCSS
+        let escapedCSS =
+            injectCSS
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "`", with: "\\`")
             .replacingOccurrences(of: "$", with: "\\$")
             .replacingOccurrences(of: "\n", with: "\\n")
 
         let cssJS = """
-        (function(){
-          try {
-            if (!document.getElementById('cr-nonselectable-style')) {
-              const s = document.createElement('style'); s.id='cr-nonselectable-style'; s.type='text/css';
-              s.appendChild(document.createTextNode(`\(escapedCSS)`));
-              document.head.appendChild(s);
-            }
-          } catch(e) {}
-        })();
-        """
+            (function(){
+              try {
+                if (!document.getElementById('cr-nonselectable-style')) {
+                  const s = document.createElement('style'); s.id='cr-nonselectable-style'; s.type='text/css';
+                  s.appendChild(document.createTextNode(`\(escapedCSS)`));
+                  document.head.appendChild(s);
+                }
+              } catch(e) {}
+            })();
+            """
 
         // 2) Inject the helper JS namespace (window.CR)
-        let escapedJS = injectJS
+        let escapedJS =
+            injectJS
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "`", with: "\\`")
             .replacingOccurrences(of: "$", with: "\\$")
             .replacingOccurrences(of: "\n", with: "\\n")
 
         let helperJS = """
-        (function(){
-          try {
-            const script = document.createElement('script');
-            script.type = 'text/javascript';
-            script.appendChild(document.createTextNode(`\(escapedJS)`));
-            document.head.appendChild(script);
-          } catch(e) {}
-        })();
-        """
+            (function(){
+              try {
+                const script = document.createElement('script');
+                script.type = 'text/javascript';
+                script.appendChild(document.createTextNode(`\(escapedJS)`));
+                document.head.appendChild(script);
+              } catch(e) {}
+            })();
+            """
 
         evalInAllWebViews(cssJS)
         evalInAllWebViews(helperJS)
@@ -134,9 +160,12 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
 
     // MARK: helpers
     private func installLongPress(on view: UIView) {
-        let lp = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
+        let lp = UILongPressGestureRecognizer(
+            target: self,
+            action: #selector(handleLongPress(_:))
+        )
         lp.minimumPressDuration = 0.2  // keeps quick horizontal flicks for page turns
-        lp.cancelsTouchesInView = false // don't steal the pan
+        lp.cancelsTouchesInView = false  // don't steal the pan
         lp.delegate = self
         view.addGestureRecognizer(lp)
         self.longPress = lp
@@ -145,27 +174,39 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
 
     @objc private func handleLongPress(_ gr: UILongPressGestureRecognizer) {
         guard let hostView = gr.view, currentMode == .customMagnifier else { return }
-        let p = gr.location(in: hostView)
+
+        // Location in the host view (the navigator root)
+        let pInHost = gr.location(in: hostView)
+
+        // Convert to navigator root coords (just in case hostView != navigatorVC.view)
+        let rootPoint: CGPoint
+        if let root = navigatorVC?.view, hostView !== root {
+            rootPoint = hostView.convert(pInHost, to: root)
+        } else {
+            rootPoint = pInHost
+        }
 
         switch gr.state {
         case .began:
             isMagnifierActive = true
-            setScrollingEnabled(false)   // <— temporarily disable page swipes
-            print("Magnifier began at: x=\(p.x), y=\(p.y)")
-            // later: show Metal loupe here
+            setScrollingEnabled(false)   // freeze page swipes while magnifier is active
+            print("Magnifier began at: x=\(rootPoint.x), y=\(rootPoint.y)")
+            highlightWord(at: rootPoint) // highlight initial word
+            impactFeedback.prepare()
+            impactFeedback.impactOccurred()
 
         case .changed:
             if isMagnifierActive {
-                print("Magnifier moved to: x=\(p.x), y=\(p.y)")
-                // later: update Metal loupe position here
+                print("Magnifier moved to: x=\(rootPoint.x), y=\(rootPoint.y)")
+                highlightWord(at: rootPoint) // follow finger with highlight
             }
 
         case .ended, .cancelled, .failed:
             if isMagnifierActive {
                 isMagnifierActive = false
-                setScrollingEnabled(true)  // <— re-enable page swipes
-                print("Magnifier ended at: x=\(p.x), y=\(p.y)")
-                // later: hide Metal loupe here
+                setScrollingEnabled(true) // restore page swipes
+                print("Magnifier ended at: x=\(rootPoint.x), y=\(rootPoint.y)")
+                // (optional later: send JS to clear highlight when finger lifts)
             }
 
         default:
@@ -174,8 +215,10 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
     }
 
     // Allow coexistence with Readium's own recognizers (paging)
-    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
-                           shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+    ) -> Bool {
         return true
     }
 
@@ -197,7 +240,7 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
         walk(root)
         return result
     }
-    
+
     // toggle scrolling for any UIScrollView inside the navigator
     private func setScrollingEnabled(_ enabled: Bool) {
         guard let root = navigatorVC?.view else { return }
@@ -208,5 +251,25 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
             for sub in v.subviews { walk(sub) }
         }
         walk(root)
+    }
+
+    //    highlight word under a given point in navigator-root coords
+    private func highlightWord(at rootPoint: CGPoint) {
+        guard let root = navigatorVC?.view else { return }
+
+        // Find the first WKWebView that contains this point
+        for webView in findDescendantWKWebViews() {
+            let local = root.convert(rootPoint, to: webView)
+            if webView.bounds.contains(local) {
+                let js = String(
+                    format:
+                        "try { window.CR && window.CR.highlightWordAtPoint(%f, %f); } catch(e) {}",
+                    local.x,
+                    local.y
+                )
+                webView.evaluateJavaScript(js, completionHandler: nil)
+                break
+            }
+        }
     }
 }
