@@ -40,6 +40,7 @@ final class ReadiumEngine: ObservableObject {
             pdfFactory: DefaultPDFDocumentFactory()
         )
     )
+    private let interactionManager = ReaderInteractionManager()
 
     // Book identity for persistence
     private var bookId: UUID?
@@ -113,7 +114,9 @@ final class ReadiumEngine: ObservableObject {
             )
             navigator.delegate = self
             self.navigatorVC = navigator
-
+            
+            // Bind interaction manager to navigator
+            interactionManager.bind(to: navigator)
         } catch {
             self.openError = error
         }
@@ -163,6 +166,9 @@ extension ReadiumEngine: EPUBNavigatorDelegate {
     func navigator(_ navigator: Navigator, locationDidChange locator: Locator) {
         currentLocation = locator
         saveLastLocation(locator)
+        
+        // Re-inject helpers for new spine doc and re-apply the selection toggle
+        interactionManager.reapplyAfterNavigation()
     }
 
     func apply(_ s: ReaderSettings, _ systemColorScheme: ColorScheme) {
@@ -191,6 +197,13 @@ extension ReadiumEngine: EPUBNavigatorDelegate {
             editor.theme.set(.sepia)
         case .system:
             editor.theme.set(systemColorScheme == .light ? .light : .dark)
+        }
+        
+        switch s.interactionMode {
+        case .systemSelection:
+            interactionManager.setMode(.systemSelection)
+        case .customMagnifier:
+            interactionManager.setMode(.customMagnifier)
         }
 
         // The following prefs can potentially cause a reflow of the document.
