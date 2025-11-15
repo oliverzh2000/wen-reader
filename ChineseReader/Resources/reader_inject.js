@@ -120,25 +120,38 @@
      }
 
      // Sentence-level state across the whole block
-     let sentenceText = "";
-     let sentenceSpans = [];
+     /** Array< Array<string> > : per-sentence tokens (words + punctuation, no whitespace) */
+     const allSentenceTokens = [];
+
+     /** Tokens for the current sentence */
+     let sentenceTokens = [];
+     /** Word spans belonging to the current sentence (for assigning sentenceId) */
+     let pendingWordSpans = [];
+     /** Next sentence id within this block */
      let sentenceIdCounter = 0;
-     let wordIndexInSentence = 0;
+     /** Token index within current sentence (0-based, includes punctuation tokens) */
+     let tokenIndexInSentence = 0;
 
      function commitSentence() {
-       if (sentenceSpans.length === 0) {
-         sentenceText = "";
+       if (sentenceTokens.length === 0) {
+         // Nothing meaningful in this sentence; just reset.
+         pendingWordSpans = [];
+         tokenIndexInSentence = 0;
          return;
        }
-       const s = sentenceText.trim();
-       for (const span of sentenceSpans) {
-         span.dataset.crSentence = s;
-         span.dataset.crSentenceId = String(sentenceIdCounter);
+
+       const sentenceId = sentenceIdCounter;
+       allSentenceTokens.push(sentenceTokens.slice());
+
+       // Assign sentenceId to all word spans in this sentence
+       for (const span of pendingWordSpans) {
+         span.dataset.crSentenceId = String(sentenceId);
        }
+
        sentenceIdCounter += 1;
-       sentenceText = "";
-       sentenceSpans = [];
-       wordIndexInSentence = 0;
+       sentenceTokens = [];
+       pendingWordSpans = [];
+       tokenIndexInSentence = 0;
      }
 
      textNodes.forEach((node) => {
@@ -157,12 +170,17 @@
            span.textContent = w;
            span.className = "cr-word";
            span.dataset.crWord = "1";
-           span.dataset.crWordIndex = String(wordIndexInSentence);
 
+           // Store token index (index into sentenceTokens)
+           span.dataset.crTokenIndex = String(tokenIndexInSentence);
+
+           // Append to DOM
            frag.appendChild(span);
-           sentenceSpans.push(span);
-           sentenceText += w;
-           wordIndexInSentence += 1;
+
+           // Logical representation
+           sentenceTokens.push(w);
+           pendingWordSpans.push(span);
+           tokenIndexInSentence += 1;
          }
          chineseRun = "";
        }
@@ -171,9 +189,9 @@
          const ch = text[i];
 
          if (isWhitespace(ch)) {
+           // Whitespace is kept visually but not added as a token
            flushChineseRun();
            frag.appendChild(document.createTextNode(ch));
-           sentenceText += ch;
            i += 1;
            continue;
          }
@@ -186,11 +204,16 @@
 
          // Non-Chinese, non-whitespace char: punctuation / Latin / etc.
          flushChineseRun();
-         frag.appendChild(document.createTextNode(ch));
-         sentenceText += ch;
 
+         // Add the character to the DOM as-is
+         frag.appendChild(document.createTextNode(ch));
+
+         // Treat each such char as a token (e.g., punctuation, Latin letter)
+         sentenceTokens.push(ch);
+         tokenIndexInSentence += 1;
+
+         // If this is a sentence boundary, finalize current sentence
          if (isSentenceBoundary(ch)) {
-           // End of a "normal" sentence
            commitSentence();
          }
 
@@ -206,6 +229,9 @@
 
      // Final trailing sentence in the block, if any
      commitSentence();
+
+     // Attach tokens to the block so we can retrieve them later
+     block.__crSentenceTokens = allSentenceTokens;
 
      block.dataset.crSegmented = "1";
    }
@@ -243,11 +269,22 @@
    function getWordInfoForSpan(span) {
      if (!span) return null;
 
-     const word = span.textContent || "";
-     const sentence = span.dataset.crSentence || "";
-     const wordIndex = span.dataset.crWordIndex
-       ? Number(span.dataset.crWordIndex)
-       : 0;
+     // Find the parent block that holds the sentence tokens
+     const block = span.closest('[data-cr-segmented="1"]');
+     if (!block) return null;
+
+     const sentenceIdStr = span.dataset.crSentenceId;
+     const tokenIndexStr = span.dataset.crTokenIndex;
+
+     if (sentenceIdStr == null || tokenIndexStr == null) {
+       return null;
+     }
+
+     const sentenceId = Number(sentenceIdStr);
+     const wordIndex = Number(tokenIndexStr);
+
+     const allSentenceTokens = block.__crSentenceTokens || [];
+     const sentenceTokens = allSentenceTokens[sentenceId] || [];
 
      const rects = [];
      const domRects = span.getClientRects();
@@ -261,10 +298,13 @@
        });
      }
 
+     // New, compact format:
+     // - sentenceTokens: array of tokens (words + punctuation, no whitespace)
+     // - wordIndex: index into sentenceTokens
+     // - rects: client rects
      return {
-       word,
-       wordIndex, // 0-based index in this sentence
-       sentence,
+       sentenceTokens,
+       wordIndex, // 0-based index in this sentence's token list
        rects
      };
    }

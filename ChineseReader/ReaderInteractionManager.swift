@@ -318,18 +318,55 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
                         return
                     }
 
-                    // For now: just dump to console
-                    let word = dict["word"] as? String ?? ""
-                    let wordIndex = dict["wordIndex"] as? Int ?? 0
-                    let sentence = dict["sentence"] as? String ?? ""
-                    let rects = dict["rects"] as? [[String: Any]] ?? []
+                    // 1. Extract sentenceTokens
+                    guard let sentenceTokens = dict["sentenceTokens"] as? [String] else {
+                        print("Missing or invalid sentenceTokens in JS result: \(dict)")
+                        return
+                    }
 
-                    print("CR word: \(word)")
-                    print("  wordIndex: \(wordIndex)")
-                    print("  sentence: \(sentence)")
-                    print("  rects: \(rects)")
+                    // 2. Extract wordIndex (comes back as NSNumber from JS)
+                    guard let wordIndexNumber = dict["wordIndex"] as? NSNumber else {
+                        print("Missing or invalid wordIndex in JS result: \(dict)")
+                        return
+                    }
+                    let wordIndex = wordIndexNumber.intValue
+
+                    // 3. Extract rects and map to [CGRect]
+                    var rects: [CGRect] = []
+                    if let rectArray = dict["rects"] as? [[String: Any]] {
+                        for rectDict in rectArray {
+                            guard
+                                let x = (rectDict["x"] as? NSNumber)?.doubleValue,
+                                let y = (rectDict["y"] as? NSNumber)?.doubleValue,
+                                let width = (rectDict["width"] as? NSNumber)?.doubleValue,
+                                let height = (rectDict["height"] as? NSNumber)?.doubleValue
+                            else {
+                                continue
+                            }
+
+                            let cgRect = CGRect(x: x, y: y, width: width, height: height)
+                            rects.append(cgRect)
+                        }
+                    }
+
+                    // 4. Derive some human-readable info
+                    let sentenceJoined = sentenceTokens.joined()
+                    let word: String? =
+                        (0..<sentenceTokens.count).contains(wordIndex)
+                        ? sentenceTokens[wordIndex]
+                        : nil
+
+                    // 5. Dump to console (you can later wire this into your model / SwiftUI state)
+                    print("=== CR.highlightWordAtPoint ===")
+                    print("Sentence tokens: \(sentenceTokens)")
+                    print("Word index: \(wordIndex)")
+                    if let word = word {
+                        print("Word at index: \(word)")
+                    } else {
+                        print("Word index out of bounds for tokens")
+                    }
+                    print("Rects (in webView coordinate space): \(rects)")
                 }
-
                 break
             }
         }
