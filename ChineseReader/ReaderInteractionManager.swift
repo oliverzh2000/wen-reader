@@ -24,6 +24,7 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
     private var isMagnifierActive = false
 
     // Cache JS/CSS payloads from bundle
+    private let jiebaJS: String
     private let injectJS: String
     private let injectCSS: String
     
@@ -32,6 +33,11 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
 
     override init() {
         // Load the files once (fail-quiet with empty string if missing)
+        self.jiebaJS =
+            (try? ReaderInteractionManager.loadBundledText(
+                named: "jieba_rs_wasm_combined",
+                ext: "js"
+            )) ?? ""
         self.injectJS =
             (try? ReaderInteractionManager.loadBundledText(
                 named: "reader_inject",
@@ -134,8 +140,31 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
               } catch(e) {}
             })();
             """
+        
+        // 2) Inject Jieba bundle as a <script> tag in the document
+        let escapedJieba =
+            jiebaJS
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "`", with: "\\`")
+            .replacingOccurrences(of: "$", with: "\\$")
+            .replacingOccurrences(of: "\n", with: "\\n")
 
-        // 2) Inject the helper JS namespace (window.CR)
+        let jiebaScriptJS = """
+            (function(){
+              try {
+                if (!window.Jieba) {
+                  const script = document.createElement('script');
+                  script.type = 'text/javascript';
+                  script.appendChild(document.createTextNode(`\(escapedJieba)`));
+                  document.head.appendChild(script);
+                }
+              } catch(e) {
+                console.error("Failed to inject Jieba", e);
+              }
+            })();
+            """
+
+        // 3) Inject the helper JS namespace (window.CR)
         let escapedJS =
             injectJS
             .replacingOccurrences(of: "\\", with: "\\\\")
@@ -155,6 +184,7 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
             """
 
         evalInAllWebViews(cssJS)
+        evalInAllWebViews(jiebaScriptJS)
         evalInAllWebViews(helperJS)
     }
 
@@ -257,19 +287,52 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
     private func highlightWord(at rootPoint: CGPoint) {
         guard let root = navigatorVC?.view else { return }
 
-        // Find the first WKWebView that contains this point
         for webView in findDescendantWKWebViews() {
             let local = root.convert(rootPoint, to: webView)
             if webView.bounds.contains(local) {
                 let js = String(
-                    format:
-                        "try { window.CR && window.CR.highlightWordAtPoint(%f, %f); } catch(e) {}",
+                    format: """
+                    (function() {
+                      try {
+                        if (window.CR && window.CR.highlightWordAtPoint) {
+                          return window.CR.highlightWordAtPoint(%f, %f);
+                        }
+                      } catch (e) {
+                        console.error("CR.highlightWordAtPoint error", e);
+                      }
+                      return null;
+                    })();
+                    """,
                     local.x,
                     local.y
                 )
-                webView.evaluateJavaScript(js, completionHandler: nil)
+
+                webView.evaluateJavaScript(js) { result, error in
+                    if let error = error {
+                        print("JS error in highlightWordAtPoint: \(error)")
+                        return
+                    }
+
+                    guard let dict = result as? [String: Any] else {
+                        print("No word info returned (result = \(String(describing: result)))")
+                        return
+                    }
+
+                    // For now: just dump to console
+                    let word = dict["word"] as? String ?? ""
+                    let wordIndex = dict["wordIndex"] as? Int ?? 0
+                    let sentence = dict["sentence"] as? String ?? ""
+                    let rects = dict["rects"] as? [[String: Any]] ?? []
+
+                    print("CR word: \(word)")
+                    print("  wordIndex: \(wordIndex)")
+                    print("  sentence: \(sentence)")
+                    print("  rects: \(rects)")
+                }
+
                 break
             }
         }
     }
+
 }

@@ -20,5 +20,5 @@ html.cr-nonselectable * {
 
 /* Optional: base word span class (no visible style yet) */
 .cr-word {
-  border-radius: 4px;
+  border-radius: 8px;
 }
