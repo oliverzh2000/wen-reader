@@ -126,12 +126,30 @@ final class ReadiumEngine: ObservableObject {
                 self.currentWordHit = hit
                 
                 // Dump to console for now.
-                print("Sentence tokens: \(self.currentWordHit?.sentenceTokens)")
-                print("Word index: \(self.currentWordHit?.wordIndex)")
-                print("Word: \(self.currentWordHit?.word)")
+                guard let idx = self.currentWordHit?.wordIndex else { return }
+                guard let tokens = self.currentWordHit?.sentenceTokens else { return }
+                guard let word = self.currentWordHit?.word else { return }
+                print("Sentence tokens: \(tokens)")
+                print("Word index: \(idx)")
+                print("Word: \(word)")
                 print("Rects: \(self.currentWordHit?.rectsInWebView)")
                 
                 // TODO: call dict here.
+                Task { [weak self] in
+                    guard let self else { return }
+                    
+                    guard let word = hit.word else { return }
+                    
+                    // 1. Full dictionary entry (all senses)
+                    if let entry = await self.dictionaryService.lookup(word) {
+                        print("📘 Dictionary entry found for \(word): \(entry)")
+                        
+                        // 2. Optionally get gloss (LLM later)
+                        if let gloss = try? await self.dictionaryService.gloss(atIndex: idx, in: tokens) {
+                            print("✨ Gloss: \(gloss)")
+                        }
+                    }
+                }
             }
         } catch {
             self.openError = error
