@@ -27,7 +27,7 @@ final class ReadiumEngine: ObservableObject {
     @Published var openError: Error?
     @Published var isOpening: Bool = false
     @Published var currentLocation: Locator?
-
+    
     // MARK: Core components (kept for the app lifetime of this engine)
     private lazy var httpClient = DefaultHTTPClient()
     // Use Readium’s GCD-based HTTP server; this serves resources to the navigator
@@ -40,7 +40,11 @@ final class ReadiumEngine: ObservableObject {
             pdfFactory: DefaultPDFDocumentFactory()
         )
     )
+    
     private let interactionManager = ReaderInteractionManager()
+    @Published var currentWordHit: WordHit?
+    
+    private let dictionaryService = CEDICTWithLLM()
 
     // Book identity for persistence
     private var bookId: UUID?
@@ -117,6 +121,18 @@ final class ReadiumEngine: ObservableObject {
             
             // Bind interaction manager to navigator
             interactionManager.bind(to: navigator)
+            interactionManager.onWordHit = { [weak self] hit in
+                guard let self else { return }
+                self.currentWordHit = hit
+                
+                // Dump to console for now.
+                print("Sentence tokens: \(self.currentWordHit?.sentenceTokens)")
+                print("Word index: \(self.currentWordHit?.wordIndex)")
+                print("Word: \(self.currentWordHit?.word)")
+                print("Rects: \(self.currentWordHit?.rectsInWebView)")
+                
+                // TODO: call dict here.
+            }
         } catch {
             self.openError = error
         }

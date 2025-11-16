@@ -10,6 +10,22 @@ import ReadiumNavigator
 import UIKit
 import WebKit
 
+// Payload returned from JS side.
+struct WordHit {
+    let sentenceTokens: [String]
+    let wordIndex: Int
+    let rectsInWebView: [CGRect]
+
+    var word: String? {
+        guard sentenceTokens.indices.contains(wordIndex) else { return nil }
+        return sentenceTokens[wordIndex]
+    }
+
+    var sentenceJoined: String {
+        sentenceTokens.joined()
+    }
+}
+
 /// Owns: selection toggle JS, long-press gesture, and reapplication on chapter changes.
 @MainActor
 final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
@@ -27,6 +43,9 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
     private let jiebaJS: String
     private let injectJS: String
     private let injectCSS: String
+    
+    // Callbacks
+    var onWordHit: ((WordHit) -> Void)?
     
     // Haptics used on magnifier start and user dragging to new word.
     private let impactFeedback = UIImpactFeedbackGenerator(style: .light)
@@ -313,25 +332,17 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
                         return
                     }
 
-                    guard let dict = result as? [String: Any] else {
-                        print("No word info returned (result = \(String(describing: result)))")
+                    guard
+                        let dict = result as? [String: Any],
+                        let sentenceTokens = dict["sentenceTokens"] as? [String],
+                        let wordIndexNumber = dict["wordIndex"] as? NSNumber
+                    else {
+                        print("No valid word info returned (result = \(String(describing: result)))")
                         return
                     }
 
-                    // 1. Extract sentenceTokens
-                    guard let sentenceTokens = dict["sentenceTokens"] as? [String] else {
-                        print("Missing or invalid sentenceTokens in JS result: \(dict)")
-                        return
-                    }
-
-                    // 2. Extract wordIndex (comes back as NSNumber from JS)
-                    guard let wordIndexNumber = dict["wordIndex"] as? NSNumber else {
-                        print("Missing or invalid wordIndex in JS result: \(dict)")
-                        return
-                    }
                     let wordIndex = wordIndexNumber.intValue
 
-                    // 3. Extract rects and map to [CGRect]
                     var rects: [CGRect] = []
                     if let rectArray = dict["rects"] as? [[String: Any]] {
                         for rectDict in rectArray {
@@ -340,32 +351,17 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
                                 let y = (rectDict["y"] as? NSNumber)?.doubleValue,
                                 let width = (rectDict["width"] as? NSNumber)?.doubleValue,
                                 let height = (rectDict["height"] as? NSNumber)?.doubleValue
-                            else {
-                                continue
-                            }
-
-                            let cgRect = CGRect(x: x, y: y, width: width, height: height)
-                            rects.append(cgRect)
+                            else { continue }
+                            rects.append(CGRect(x: x, y: y, width: width, height: height))
                         }
                     }
 
-                    // 4. Derive some human-readable info
-                    let sentenceJoined = sentenceTokens.joined()
-                    let word: String? =
-                        (0..<sentenceTokens.count).contains(wordIndex)
-                        ? sentenceTokens[wordIndex]
-                        : nil
-
-                    // 5. Dump to console (you can later wire this into your model / SwiftUI state)
-                    print("=== CR.highlightWordAtPoint ===")
-                    print("Sentence tokens: \(sentenceTokens)")
-                    print("Word index: \(wordIndex)")
-                    if let word = word {
-                        print("Word at index: \(word)")
-                    } else {
-                        print("Word index out of bounds for tokens")
-                    }
-                    print("Rects (in webView coordinate space): \(rects)")
+                    let hit = WordHit(
+                        sentenceTokens: sentenceTokens,
+                        wordIndex: wordIndex,
+                        rectsInWebView: rects
+                    )
+                    self.onWordHit?(hit)
                 }
                 break
             }
