@@ -23,7 +23,7 @@ struct DictionaryEntry {
     struct Sense {
         let traditional: String // "長"
         let simplified: String  // "长"
-        let pinyin: [String]    // ["chang2"], or ["ji1", "chu3"] for multi-char words
+        let accentedPinyin: [String]    // ["cháng"], or ["jī", "chǔ"] for multi-char words
         let definitions: [String]
     }
 }
@@ -47,7 +47,7 @@ final class CEDICTWithLLM: DictionaryService {
         guard let entry = Self.entries[word] else { return nil }
         
         // TODO: later
-        //  - send `word`, `sentence`, and `entry` to the LLM
+        //  - send word, sentence, senses to the LLM
         //  - pick the best sense and compress to a concise gloss.
         //
         // For now: dumb fallback – first definition of the first sense.
@@ -74,7 +74,7 @@ final class CEDICTWithLLM: DictionaryService {
                     DictionaryEntry.Sense(
                         traditional: raw.t,
                         simplified: raw.s,
-                        pinyin: raw.p
+                        accentedPinyin: raw.p
                             .split(separator: " ")
                             .map { numberedToAccentedPinyin(String($0)) },
                         definitions: raw.d
