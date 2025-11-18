@@ -17,8 +17,3 @@ html.cr-nonselectable * {
   background-color: rgba(120, 170, 255, 0.4);
   border-radius: 4px;
 }
-
-/* Optional: base word span class (no visible style yet) */
-.cr-word {
-  border-radius: 8px;
-}
