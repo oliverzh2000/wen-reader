@@ -15,6 +15,7 @@ struct WordHit {
     let sentenceTokens: [String]
     let wordIndex: Int
     let rectsInWebView: [CGRect]
+    let hitPoint: CGPoint
 
     var word: String? {
         guard sentenceTokens.indices.contains(wordIndex) else { return nil }
@@ -373,7 +374,8 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
                     let hit = WordHit(
                         sentenceTokens: sentenceTokens,
                         wordIndex: wordIndex,
-                        rectsInWebView: rects
+                        rectsInWebView: rects,
+                        hitPoint: rootPoint
                     )
                     self.onWordHit?(hit)
                 }

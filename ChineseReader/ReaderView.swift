@@ -66,27 +66,39 @@ struct ReaderView: View {
         ZStack {
             ReaderSurface(engine: engine)
 
-            // Dictionary popover overlay
-            if let entry = engine.currentDictEntry {
-                // Dimmed backdrop to indicate “modal-ish” state
-                Color.gray
-                    .opacity(0.0001)
-                    .ignoresSafeArea()
-                    .onTapGesture {
-                        // Tap outside to dismiss
-                        engine.currentDictEntry = nil
-                    }
+            GeometryReader { proxy in
+                if let entry = engine.currentDictEntry {
+                    let screenHeight = proxy.size.height
+                    let hitY =
+                        engine.currentWordHit?.hitPoint.y ?? screenHeight / 2
 
-                // Centered popover
-                DictionaryPopover(entry: entry)
-                    .padding()
-                    .frame(maxHeight: 300)
-                    .frame( // expand to fill, then pin to top or bottom
-                        maxWidth: .infinity,
-                        maxHeight: .infinity,
-                        alignment: true ? .top : .bottom
-                    )
-                    .zIndex(1)
+                    // If the word is in the bottom half of the screen, show popover on top, else bottom
+                    let alignment: Alignment =
+                        (hitY > screenHeight / 2) ? .top : .bottom
+                    let edge: Edge = (alignment == .top) ? .top : .bottom
+
+                    // Backdrop to catch taps outside
+                    Color.black.opacity(0.0001)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            engine.currentDictEntry = nil
+                        }
+
+                    // Popover pinned to top or bottom
+                    DictionaryPopover(entry: entry)
+                        .padding()
+                        .frame(maxHeight: 300)
+                        .frame(
+                            maxWidth: .infinity,
+                            maxHeight: .infinity,
+                            alignment: alignment
+                        )
+                        .transition(
+                            .opacity
+                                .combined(with: .move(edge: edge))
+                        )
+                        .zIndex(1)
+                }
             }
         }
         .navigationTitle(book.displayName)
@@ -274,11 +286,19 @@ struct DictionaryPopover: View {
 
             // Senses: horizontally swipable, each page is a native List
             TabView(selection: $selectedSenseIndex) {
-                ForEach(Array(entry.senses.enumerated()), id: \.offset) { index, sense in
+                ForEach(Array(entry.senses.enumerated()), id: \.offset) {
+                    index,
+                    sense in
                     ScrollView {
                         VStack(alignment: .leading, spacing: 6) {
-                            ForEach(Array(sense.definitions.enumerated()), id: \.offset) { defIndex, definition in
-                                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            ForEach(
+                                Array(sense.definitions.enumerated()),
+                                id: \.offset
+                            ) { defIndex, definition in
+                                HStack(
+                                    alignment: .firstTextBaseline,
+                                    spacing: 8
+                                ) {
                                     // Definition indexes.
                                     Text("\(defIndex + 1).")
                                         .fontDesign(.monospaced)
@@ -288,7 +308,10 @@ struct DictionaryPopover: View {
 
                                     Text(definition)
                                         .font(.subheadline)
-                                        .fixedSize(horizontal: false, vertical: true)
+                                        .fixedSize(
+                                            horizontal: false,
+                                            vertical: true
+                                        )
                                 }
                                 .padding(.vertical, 2)
                             }
@@ -482,7 +505,7 @@ struct DictionaryPopover_Previews: PreviewProvider {
                     accentedPinyin: ["cháng"],
                     definitions: [
                         "long; lengthy",
-                        "to grow; to develop"
+                        "to grow; to develop",
                     ]
                 ),
                 .init(
