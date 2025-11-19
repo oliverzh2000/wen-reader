@@ -42,9 +42,10 @@ final class ReadiumEngine: ObservableObject {
     )
     
     private let interactionManager = ReaderInteractionManager()
-    @Published var currentWordHit: WordHit?
     
     private let dictionaryService = CEDICTWithLLM()
+    @Published var currentWordHit: WordHit?
+    @Published var currentDictEntry: DictionaryEntry?
 
     // Book identity for persistence
     private var bookId: UUID?
@@ -125,16 +126,6 @@ final class ReadiumEngine: ObservableObject {
                 guard let self else { return }
                 self.currentWordHit = hit
                 
-                // Dump to console for now.
-                guard let idx = self.currentWordHit?.wordIndex else { return }
-                guard let tokens = self.currentWordHit?.sentenceTokens else { return }
-                guard let word = self.currentWordHit?.word else { return }
-                print("Sentence tokens: \(tokens)")
-                print("Word index: \(idx)")
-                print("Word: \(word)")
-                print("Rects: \(self.currentWordHit?.rectsInWebView)")
-                
-                // TODO: call dict here.
                 Task { [weak self] in
                     guard let self else { return }
                     
@@ -142,15 +133,13 @@ final class ReadiumEngine: ObservableObject {
                     
                     // 1. Full dictionary entry (all senses)
                     if let entry = await self.dictionaryService.lookup(word) {
-                        print("📘 Dictionary entry found for \(word): \(entry)")
-                        
-                        // 2. Optionally get gloss (LLM later)
-                        if let gloss = try? await self.dictionaryService.gloss(atIndex: idx, in: tokens) {
-                            print("✨ Gloss: \(gloss)")
-                        }
+                        dump(entry)
+                        currentDictEntry = entry
                     }
                 }
             }
+            
+            dictionaryService.forceLoad()
         } catch {
             self.openError = error
         }

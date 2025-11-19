@@ -239,14 +239,12 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
         case .began:
             isMagnifierActive = true
             setScrollingEnabled(false)   // freeze page swipes while magnifier is active
-            print("Magnifier began at: x=\(rootPoint.x), y=\(rootPoint.y)")
             highlightWord(at: rootPoint) // highlight initial word
             impactFeedback.prepare()
             impactFeedback.impactOccurred()
 
         case .changed:
             if isMagnifierActive {
-                print("Magnifier moved to: x=\(rootPoint.x), y=\(rootPoint.y)")
                 highlightWord(at: rootPoint) // follow finger with highlight
             }
 
@@ -254,7 +252,6 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
             if isMagnifierActive {
                 isMagnifierActive = false
                 setScrollingEnabled(true) // restore page swipes
-                print("Magnifier ended at: x=\(rootPoint.x), y=\(rootPoint.y)")
                 // (optional later: send JS to clear highlight when finger lifts)
             }
 

@@ -32,10 +32,15 @@ final class CEDICTWithLLM: DictionaryService {
     // MARK: - Static dictionary storage
     /// Loaded once per process, shared by all instances.
     private static let entries: [String: DictionaryEntry] = {
+        // TODO: fix lazy loading
         loadDictionary()
     }()
-    
+     
     // MARK: - DictionaryService
+    func forceLoad() {
+        _ = Self.entries;
+    }
+    
     func lookup(_ word: String) async -> DictionaryEntry? {
         Self.entries[word]
     }
