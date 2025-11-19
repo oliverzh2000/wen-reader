@@ -46,14 +46,18 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
     private let injectJS: String
     private let injectCSS: String
     
-    // Used to keep track of finger-up event from long press, and to suppress tap events due to this.
+    // Keep track of finger-up event from long press, and to suppress tap events due to this.
     private var longPressEndTime: CFTimeInterval = 0
+    
+    // Keep track of wordHit and only forward to engine once it changes.
+    // This also enables haptic impact on each new highlighted word
+    private var currentWordHit: WordHit?
 
     // Callbacks
     var onWordHit: ((WordHit) -> Void)?
     
     // Haptics used on magnifier start and user dragging to new word.
-    private let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+    private let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
 
     override init() {
         // Load the files once (fail-quiet with empty string if missing)
@@ -244,8 +248,6 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
             isMagnifierActive = true
             setScrollingEnabled(false)   // freeze page swipes while magnifier is active
             highlightWord(at: rootPoint) // highlight initial word
-            impactFeedback.prepare()
-            impactFeedback.impactOccurred()
 
         case .changed:
             if isMagnifierActive {
@@ -377,7 +379,15 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
                         rectsInWebView: rects,
                         hitPoint: rootPoint
                     )
-                    self.onWordHit?(hit)
+                    
+                    // Only update engine with word hit and perform haptic when we highlighted a new word.
+                    // Checking for new client rects is the most reliable method.
+                    if hit.rectsInWebView != self.currentWordHit?.rectsInWebView {
+                        self.currentWordHit = hit
+                        self.onWordHit?(hit)
+                        self.impactFeedback.prepare()
+                        self.impactFeedback.impactOccurred()
+                    }
                 }
                 break
             }
