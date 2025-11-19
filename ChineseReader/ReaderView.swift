@@ -65,7 +65,7 @@ struct ReaderView: View {
     var body: some View {
         ZStack {
             ReaderSurface(engine: engine)
-            
+
             // Dictionary popover overlay
             if let entry = engine.currentDictEntry {
                 // Dimmed backdrop to indicate “modal-ish” state
@@ -74,17 +74,17 @@ struct ReaderView: View {
                     .ignoresSafeArea()
                     .onTapGesture {
                         // Tap outside to dismiss
-                        withAnimation(.spring()) {
-                            engine.currentDictEntry = nil
-                        }
+                        engine.currentDictEntry = nil
                     }
 
                 // Centered popover
                 DictionaryPopover(entry: entry)
                     .padding()
-                    .frame(maxWidth: 360)
-                    .transition(
-                        .scale.combined(with: .opacity)
+                    .frame(maxHeight: 300)
+                    .frame( // expand to fill, then pin to top or bottom
+                        maxWidth: .infinity,
+                        maxHeight: .infinity,
+                        alignment: true ? .top : .bottom
                     )
                     .zIndex(1)
             }
@@ -193,7 +193,8 @@ struct ReaderChromeModifier: SwiftUI.ViewModifier {
                             settingsStore.settings.interactionMode.toggle()
                         } label: {
                             Image(
-                                systemName: settingsStore.settings.interactionMode
+                                systemName: settingsStore.settings
+                                    .interactionMode
                                     == .customMagnifier
                                     ? "sparkles" : "text.magnifyingglass"
                             )
@@ -231,83 +232,77 @@ extension View {
 // MARK: - Dictionary Popover
 struct DictionaryPopover: View {
     let entry: DictionaryEntry
-    
-    @State private var selectedSenseIndex: Int
-    
+
+    @State private var selectedSenseIndex = 0
+
     init(entry: DictionaryEntry, initialSenseIndex: Int = 0) {
         self.entry = entry
-        let clamped = entry.senses.isEmpty
-            ? 0
-            : min(max(0, initialSenseIndex), entry.senses.count - 1)
-        _selectedSenseIndex = State(initialValue: clamped)
     }
-    
+
     private var currentSense: DictionaryEntry.Sense? {
-        guard entry.senses.indices.contains(selectedSenseIndex) else { return nil }
         return entry.senses[selectedSenseIndex]
     }
-    
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Header: pinyin + headword for current sense
+        VStack(alignment: .leading) {
             if let sense = currentSense {
-                // Pinyin
-                if !sense.accentedPinyin.isEmpty {
+                // Header: pinyin + sense index
+                HStack(alignment: .firstTextBaseline) {
                     Text(sense.accentedPinyin.joined(separator: " "))
-                        .font(.footnote)            // smaller
-                        .fontWeight(.semibold)      // bold-ish
+                        .font(.footnote)
+                        .fontWeight(.bold)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text("\(selectedSenseIndex + 1) / \(entry.senses.count)")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                
+
                 // Headword: simplified [traditional]
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text(sense.simplified)
                         .font(.title2)
-                        .fontWeight(.semibold)
-                    
-                    Text("[\(sense.traditional)]")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    
-                    Spacer()
-                    
-                    // Optional: sense index indicator
-                    if !entry.senses.isEmpty {
-                        Text("\(selectedSenseIndex + 1) / \(entry.senses.count)")
-                            .font(.caption)
+
+                    // Only show [traditional] if different.
+                    if sense.traditional != sense.simplified {
+                        Text("[\(sense.traditional)]")
+                            .font(.title2)
                             .foregroundStyle(.secondary)
                     }
                 }
             }
-            
-            // Senses: horizontally swipable with snapping
+
+            // Senses: horizontally swipable, each page is a native List
             TabView(selection: $selectedSenseIndex) {
                 ForEach(Array(entry.senses.enumerated()), id: \.offset) { index, sense in
-                    VStack(alignment: .leading, spacing: 6) {
-                        ForEach(Array(sense.definitions.enumerated()), id: \.offset) { defIndex, definition in
-                            HStack(alignment: .top, spacing: 6) {
-                                Text("\(defIndex + 1).")
-                                    .font(.caption)
-                                    .fontWeight(.medium)
-                                    .padding(.top, 2)
-                                
-                                Text(definition)
-                                    .font(.body)
-                                    .fixedSize(horizontal: false, vertical: true)
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(Array(sense.definitions.enumerated()), id: \.offset) { defIndex, definition in
+                                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                    // Definition indexes.
+                                    Text("\(defIndex + 1).")
+                                        .fontDesign(.monospaced)
+                                        .font(.caption)
+                                        .fontWeight(.medium)
+                                        .foregroundStyle(.secondary)
+
+                                    Text(definition)
+                                        .font(.subheadline)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                .padding(.vertical, 2)
                             }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        
-                        Spacer(minLength: 0)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .padding(.horizontal, 4)
                     .tag(index)
                 }
             }
-            .tabViewStyle(.page(indexDisplayMode: .automatic)) // horizontal snap between senses
-            .frame(minHeight: 120, maxHeight: 220)              // tweak as needed
+            .tabViewStyle(.page(indexDisplayMode: .never))
         }
-        .padding(12)
-        .background(.thinMaterial)
+        .padding()
+        .background(Color(.secondarySystemBackground))
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .shadow(radius: 8)
     }
@@ -496,12 +491,12 @@ struct DictionaryPopover_Previews: PreviewProvider {
                     accentedPinyin: ["zhǎng"],
                     definitions: [
                         "to head; to lead",
-                        "elder; senior; chief"
+                        "elder; senior; chief",
                     ]
-                )
+                ),
             ]
         )
-        
+
         DictionaryPopover(entry: sample)
             .padding()
             .previewLayout(.sizeThatFits)
