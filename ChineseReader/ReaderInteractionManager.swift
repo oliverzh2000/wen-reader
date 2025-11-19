@@ -40,10 +40,14 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
     private var isMagnifierActive = false
 
     // Cache JS/CSS payloads from bundle
+    // TODO: make local to functions.
     private let jiebaJS: String
     private let injectJS: String
     private let injectCSS: String
     
+    // Used to keep track of finger-up event from long press, and to suppress tap events due to this.
+    private var longPressEndTime: CFTimeInterval = 0
+
     // Callbacks
     var onWordHit: ((WordHit) -> Void)?
     
@@ -111,7 +115,6 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
     }
 
     // MARK: selection toggling
-
     private func applyMode(_ mode: Mode) {
         switch mode {
         case .systemSelection:
@@ -253,6 +256,9 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
                 isMagnifierActive = false
                 setScrollingEnabled(true) // restore page swipes
                 // (optional later: send JS to clear highlight when finger lifts)
+                
+                // Mark that a long press just finished
+                longPressEndTime = CACurrentMediaTime()
             }
 
         default:
@@ -266,6 +272,17 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
         shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
     ) -> Bool {
         return true
+    }
+    
+    /// Returns true iff a long-press ended very recently.
+    func consumeSuppressedTap(threshold: CFTimeInterval = 0.1) -> Bool {
+        let now = CACurrentMediaTime()
+        if now - longPressEndTime < threshold {
+            // Consume exactly one tap
+            longPressEndTime = 0
+            return true
+        }
+        return false
     }
 
     // MARK: helpers

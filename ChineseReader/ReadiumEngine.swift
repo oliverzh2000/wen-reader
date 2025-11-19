@@ -250,9 +250,22 @@ extension ReadiumEngine: EPUBNavigatorDelegate {
 
         // Single tap anywhere
         nav.addObserver(
-            .tap { event in
+            .tap { [weak self] event in
+                guard let self else { return false }
+
+                // If a long-press just ended, swallow this tap
+                if self.interactionManager.consumeSuppressedTap() {
+                    // Return true to mark the event as handled and
+                    // prevent further tap listeners from firing.
+                    return true
+                }
+
+                // Normal single-tap: let the caller toggle chrome, etc.
                 onSingleTap()
-                return false  // don't consume; let links/images still receive the tap
+
+                // Return false so Readium can still deliver the tap
+                // to links/images inside the page.
+                return false
             }
         )
     }
