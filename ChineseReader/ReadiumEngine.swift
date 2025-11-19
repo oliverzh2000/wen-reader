@@ -129,12 +129,14 @@ final class ReadiumEngine: ObservableObject {
                 Task { [weak self] in
                     guard let self else { return }
                     
-                    guard let word = hit.word else { return }
-                    
-                    // 1. Full dictionary entry (all senses)
-                    if let entry = await self.dictionaryService.lookup(word) {
-                        dump(entry)
-                        currentDictEntry = entry
+                    if let word = hit?.word {
+                        // Full dictionary entry (all senses)
+                        if let entry = await self.dictionaryService.lookup(word) {
+                            dump(entry)
+                            currentDictEntry = entry
+                        }
+                    } else {
+                        currentDictEntry = nil;
                     }
                 }
             }

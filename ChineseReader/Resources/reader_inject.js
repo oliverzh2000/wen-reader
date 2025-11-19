@@ -323,6 +323,12 @@
 
      // Main entry from Swift: highlight word under (x, y) and return info
      highlightWordAtPoint: function (x, y) {
+         // Always clear existing previous highlight
+         const last = window.CR._lastWordEl;
+         if (last) {
+           last.classList.remove("cr-word-highlight");
+         }
+         
        x = Number(x);
        y = Number(y);
 
@@ -334,11 +340,6 @@
 
        const span = findWordSpanFromPoint(x, y);
        if (!span) return null;
-
-       const last = window.CR._lastWordEl;
-       if (last && last !== span) {
-         last.classList.remove("cr-word-highlight");
-       }
 
        span.classList.add("cr-word-highlight");
        window.CR._lastWordEl = span;

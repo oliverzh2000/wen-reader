@@ -54,7 +54,7 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
     private var currentWordHit: WordHit?
 
     // Callbacks
-    var onWordHit: ((WordHit) -> Void)?
+    var onWordHit: ((WordHit?) -> Void)?
     
     // Haptics used on magnifier start and user dragging to new word.
     private let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
@@ -346,7 +346,8 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
                 webView.evaluateJavaScript(js) { result, error in
                     if let error = error {
                         print("JS error in highlightWordAtPoint: \(error)")
-                        return
+                        self.currentWordHit = nil
+                        self.onWordHit?(nil)
                     }
 
                     guard
@@ -354,7 +355,8 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
                         let sentenceTokens = dict["sentenceTokens"] as? [String],
                         let wordIndexNumber = dict["wordIndex"] as? NSNumber
                     else {
-                        print("No valid word info returned (result = \(String(describing: result)))")
+                        self.currentWordHit = nil
+                        self.onWordHit?(nil)
                         return
                     }
 
