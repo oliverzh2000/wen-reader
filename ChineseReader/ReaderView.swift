@@ -65,6 +65,29 @@ struct ReaderView: View {
     var body: some View {
         ZStack {
             ReaderSurface(engine: engine)
+            
+            // Dictionary popover overlay
+            if let entry = engine.currentDictEntry {
+                // Dimmed backdrop to indicate “modal-ish” state
+                Color.gray
+                    .opacity(0.0001)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        // Tap outside to dismiss
+                        withAnimation(.spring()) {
+                            engine.currentDictEntry = nil
+                        }
+                    }
+
+                // Centered popover
+                DictionaryPopover(entry: entry)
+                    .padding()
+                    .frame(maxWidth: 360)
+                    .transition(
+                        .scale.combined(with: .opacity)
+                    )
+                    .zIndex(1)
+            }
         }
         .navigationTitle(book.displayName)
         .navigationBarTitleDisplayMode(.inline)
@@ -202,6 +225,91 @@ extension View {
                 showSettings: showSettings
             )
         )
+    }
+}
+
+// MARK: - Dictionary Popover
+struct DictionaryPopover: View {
+    let entry: DictionaryEntry
+    
+    @State private var selectedSenseIndex: Int
+    
+    init(entry: DictionaryEntry, initialSenseIndex: Int = 0) {
+        self.entry = entry
+        let clamped = entry.senses.isEmpty
+            ? 0
+            : min(max(0, initialSenseIndex), entry.senses.count - 1)
+        _selectedSenseIndex = State(initialValue: clamped)
+    }
+    
+    private var currentSense: DictionaryEntry.Sense? {
+        guard entry.senses.indices.contains(selectedSenseIndex) else { return nil }
+        return entry.senses[selectedSenseIndex]
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Header: pinyin + headword for current sense
+            if let sense = currentSense {
+                // Pinyin
+                if !sense.accentedPinyin.isEmpty {
+                    Text(sense.accentedPinyin.joined(separator: " "))
+                        .font(.footnote)            // smaller
+                        .fontWeight(.semibold)      // bold-ish
+                        .foregroundStyle(.secondary)
+                }
+                
+                // Headword: simplified [traditional]
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text(sense.simplified)
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                    
+                    Text("[\(sense.traditional)]")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    
+                    Spacer()
+                    
+                    // Optional: sense index indicator
+                    if !entry.senses.isEmpty {
+                        Text("\(selectedSenseIndex + 1) / \(entry.senses.count)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            
+            // Senses: horizontally swipable with snapping
+            TabView(selection: $selectedSenseIndex) {
+                ForEach(Array(entry.senses.enumerated()), id: \.offset) { index, sense in
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(Array(sense.definitions.enumerated()), id: \.offset) { defIndex, definition in
+                            HStack(alignment: .top, spacing: 6) {
+                                Text("\(defIndex + 1).")
+                                    .font(.caption)
+                                    .fontWeight(.medium)
+                                    .padding(.top, 2)
+                                
+                                Text(definition)
+                                    .font(.body)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                        
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 4)
+                    .tag(index)
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: .automatic)) // horizontal snap between senses
+            .frame(minHeight: 120, maxHeight: 220)              // tweak as needed
+        }
+        .padding(12)
+        .background(.thinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .shadow(radius: 8)
     }
 }
 
@@ -364,5 +472,38 @@ struct SettingsSheet: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Preview
+struct DictionaryPopover_Previews: PreviewProvider {
+    static var previews: some View {
+        let sample = DictionaryEntry(
+            headword: "长",
+            senses: [
+                .init(
+                    traditional: "長",
+                    simplified: "长",
+                    accentedPinyin: ["cháng"],
+                    definitions: [
+                        "long; lengthy",
+                        "to grow; to develop"
+                    ]
+                ),
+                .init(
+                    traditional: "長",
+                    simplified: "长",
+                    accentedPinyin: ["zhǎng"],
+                    definitions: [
+                        "to head; to lead",
+                        "elder; senior; chief"
+                    ]
+                )
+            ]
+        )
+        
+        DictionaryPopover(entry: sample)
+            .padding()
+            .previewLayout(.sizeThatFits)
     }
 }
