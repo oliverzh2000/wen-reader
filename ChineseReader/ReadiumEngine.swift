@@ -125,7 +125,7 @@ final class ReadiumEngine: ObservableObject {
             interactionManager.onWordHit = { [weak self] hit in
                 guard let self else { return }
                 self.currentWordHit = hit
-                
+
                 Task { [weak self] in
                     guard let self else { return }
                     
@@ -141,6 +141,7 @@ final class ReadiumEngine: ObservableObject {
                 }
             }
             
+            // TODO: make class static and move forceLoad into Task at app init.
             dictionaryService.forceLoad()
         } catch {
             self.openError = error

@@ -134,6 +134,9 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
             })();
             """
         evalInAllWebViews(js)
+        
+        // Reset this, so that pressing on same word again will still forward to engine.
+        currentWordHit = nil
     }
 
     // MARK: selection toggling
