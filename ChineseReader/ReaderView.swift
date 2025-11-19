@@ -77,13 +77,6 @@ struct ReaderView: View {
                         (hitY > screenHeight / 2) ? .top : .bottom
                     let edge: Edge = (alignment == .top) ? .top : .bottom
 
-                    // Backdrop to catch taps outside
-                    Color.black.opacity(0.0001)
-                        .ignoresSafeArea()
-                        .onTapGesture {
-                            engine.currentDictEntry = nil
-                        }
-
                     // Popover pinned to top or bottom
                     DictionaryPopover(entry: entry)
                         .padding()
@@ -132,10 +125,15 @@ struct ReaderView: View {
 
                 engine.installInputObservers(
                     onSingleTap: {
-                        // Toggle chrome on any single tap
-                        withAnimation(.easeInOut) {
-                            showChrome.toggle()
-                            chrome.hideStatusBar = !showChrome
+                        // Single tap will hide dict if present, otherwise toggle chrome.
+                        if engine.currentDictEntry != nil {
+                            engine.clearDictAndHighlight()
+                        } else {
+                            // Toggle chrome on any single tap
+                            withAnimation(.easeInOut) {
+                                showChrome.toggle()
+                                chrome.hideStatusBar = !showChrome
+                            }
                         }
                     },
                 )

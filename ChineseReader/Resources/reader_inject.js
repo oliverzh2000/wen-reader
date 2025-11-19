@@ -320,14 +320,19 @@
          addClass("cr-nonselectable");
        }
      },
+       
+      clearHighlight: function () {
+           const last = window.CR._lastWordEl;
+           if (last) {
+             last.classList.remove("cr-word-highlight");
+             window.CR._lastWordEl = null;
+           }
+       },
 
      // Main entry from Swift: highlight word under (x, y) and return info
      highlightWordAtPoint: function (x, y) {
          // Always clear existing previous highlight
-         const last = window.CR._lastWordEl;
-         if (last) {
-           last.classList.remove("cr-word-highlight");
-         }
+         window.CR.clearHighlight();
          
        x = Number(x);
        y = Number(y);

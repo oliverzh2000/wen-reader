@@ -136,7 +136,7 @@ final class ReadiumEngine: ObservableObject {
                             currentDictEntry = entry
                         }
                     } else {
-                        currentDictEntry = nil;
+                        clearDictAndHighlight()
                     }
                 }
             }
@@ -148,13 +148,20 @@ final class ReadiumEngine: ObservableObject {
 
         isOpening = false
     }
+    
+    func clearDictAndHighlight() {
+        currentDictEntry = nil
+        interactionManager.clearHighlight()
+    }
 
     // MARK: Navigation helpers you can call from SwiftUI buttons
     func go(to link: RLink) async {
+        clearDictAndHighlight()
         await navigatorVC?.go(to: link)
     }
 
     func go(to locator: Locator) async {
+        clearDictAndHighlight()
         await navigatorVC?.go(to: locator)
     }
 
@@ -189,6 +196,8 @@ extension ReadiumEngine: EPUBNavigatorDelegate {
     }
 
     func navigator(_ navigator: Navigator, locationDidChange locator: Locator) {
+        clearDictAndHighlight()
+        
         currentLocation = locator
         saveLastLocation(locator)
         

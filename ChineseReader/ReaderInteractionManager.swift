@@ -45,17 +45,17 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
     private let jiebaJS: String
     private let injectJS: String
     private let injectCSS: String
-    
+
     // Keep track of finger-up event from long press, and to suppress tap events due to this.
     private var longPressEndTime: CFTimeInterval = 0
-    
+
     // Keep track of wordHit and only forward to engine once it changes.
     // This also enables haptic impact on each new highlighted word
     private var currentWordHit: WordHit?
 
     // Callbacks
     var onWordHit: ((WordHit?) -> Void)?
-    
+
     // Haptics used on magnifier start and user dragging to new word.
     private let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
 
@@ -119,6 +119,23 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
         applyMode(currentMode)
     }
 
+    /// Call this from engine to remove highlighted word.
+    func clearHighlight() {
+        let js = """
+            (function() {
+              try {
+                if (window.CR && window.CR.clearHighlight()) {
+                  return window.CR.clearHighlight();
+                }
+              } catch (e) {
+                console.error("CR.clearHighlight error", e);
+              }
+              return null;
+            })();
+            """
+        evalInAllWebViews(js)
+    }
+
     // MARK: selection toggling
     private func applyMode(_ mode: Mode) {
         switch mode {
@@ -167,7 +184,7 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
               } catch(e) {}
             })();
             """
-        
+
         // 2) Inject Jieba bundle as a <script> tag in the document
         let escapedJieba =
             jiebaJS
@@ -230,7 +247,9 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
     }
 
     @objc private func handleLongPress(_ gr: UILongPressGestureRecognizer) {
-        guard let hostView = gr.view, currentMode == .customMagnifier else { return }
+        guard let hostView = gr.view, currentMode == .customMagnifier else {
+            return
+        }
 
         // Location in the host view (the navigator root)
         let pInHost = gr.location(in: hostView)
@@ -246,20 +265,20 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
         switch gr.state {
         case .began:
             isMagnifierActive = true
-            setScrollingEnabled(false)   // freeze page swipes while magnifier is active
-            highlightWord(at: rootPoint) // highlight initial word
+            setScrollingEnabled(false)  // freeze page swipes while magnifier is active
+            highlightWord(at: rootPoint)  // highlight initial word
 
         case .changed:
             if isMagnifierActive {
-                highlightWord(at: rootPoint) // follow finger with highlight
+                highlightWord(at: rootPoint)  // follow finger with highlight
             }
 
         case .ended, .cancelled, .failed:
             if isMagnifierActive {
                 isMagnifierActive = false
-                setScrollingEnabled(true) // restore page swipes
+                setScrollingEnabled(true)  // restore page swipes
                 // (optional later: send JS to clear highlight when finger lifts)
-                
+
                 // Mark that a long press just finished
                 longPressEndTime = CACurrentMediaTime()
             }
@@ -276,7 +295,7 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
     ) -> Bool {
         return true
     }
-    
+
     /// Returns true iff a long-press ended very recently.
     func consumeSuppressedTap(threshold: CFTimeInterval = 0.1) -> Bool {
         let now = CACurrentMediaTime()
@@ -328,17 +347,17 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
             if webView.bounds.contains(local) {
                 let js = String(
                     format: """
-                    (function() {
-                      try {
-                        if (window.CR && window.CR.highlightWordAtPoint) {
-                          return window.CR.highlightWordAtPoint(%f, %f);
-                        }
-                      } catch (e) {
-                        console.error("CR.highlightWordAtPoint error", e);
-                      }
-                      return null;
-                    })();
-                    """,
+                        (function() {
+                          try {
+                            if (window.CR && window.CR.highlightWordAtPoint) {
+                              return window.CR.highlightWordAtPoint(%f, %f);
+                            }
+                          } catch (e) {
+                            console.error("CR.highlightWordAtPoint error", e);
+                          }
+                          return null;
+                        })();
+                        """,
                     local.x,
                     local.y
                 )
@@ -352,7 +371,8 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
 
                     guard
                         let dict = result as? [String: Any],
-                        let sentenceTokens = dict["sentenceTokens"] as? [String],
+                        let sentenceTokens = dict["sentenceTokens"]
+                            as? [String],
                         let wordIndexNumber = dict["wordIndex"] as? NSNumber
                     else {
                         self.currentWordHit = nil
@@ -366,12 +386,18 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
                     if let rectArray = dict["rects"] as? [[String: Any]] {
                         for rectDict in rectArray {
                             guard
-                                let x = (rectDict["x"] as? NSNumber)?.doubleValue,
-                                let y = (rectDict["y"] as? NSNumber)?.doubleValue,
-                                let width = (rectDict["width"] as? NSNumber)?.doubleValue,
-                                let height = (rectDict["height"] as? NSNumber)?.doubleValue
+                                let x = (rectDict["x"] as? NSNumber)?
+                                    .doubleValue,
+                                let y = (rectDict["y"] as? NSNumber)?
+                                    .doubleValue,
+                                let width = (rectDict["width"] as? NSNumber)?
+                                    .doubleValue,
+                                let height = (rectDict["height"] as? NSNumber)?
+                                    .doubleValue
                             else { continue }
-                            rects.append(CGRect(x: x, y: y, width: width, height: height))
+                            rects.append(
+                                CGRect(x: x, y: y, width: width, height: height)
+                            )
                         }
                     }
 
@@ -381,10 +407,11 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
                         rectsInWebView: rects,
                         hitPoint: rootPoint
                     )
-                    
+
                     // Only update engine with word hit and perform haptic when we highlighted a new word.
                     // Checking for new client rects is the most reliable method.
-                    if hit.rectsInWebView != self.currentWordHit?.rectsInWebView {
+                    if hit.rectsInWebView != self.currentWordHit?.rectsInWebView
+                    {
                         self.currentWordHit = hit
                         self.onWordHit?(hit)
                         self.impactFeedback.prepare()
