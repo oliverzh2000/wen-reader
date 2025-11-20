@@ -67,7 +67,7 @@ struct ReaderView: View {
             ReaderSurface(engine: engine)
 
             GeometryReader { proxy in
-                if let entry = engine.currentDictEntry {
+                if let result = engine.currentDictResult {
                     let screenHeight = proxy.size.height
                     let hitY =
                         engine.currentWordHit?.hitPoint.y ?? screenHeight / 2
@@ -78,7 +78,7 @@ struct ReaderView: View {
                     let edge: Edge = (alignment == .top) ? .top : .bottom
 
                     // Popover pinned to top or bottom
-                    DictionaryPopover(entry: entry)
+                    DictionaryPopover(result: result)
                         .padding()
                         .frame(maxHeight: 300)
                         .frame(
@@ -126,7 +126,7 @@ struct ReaderView: View {
                 engine.installInputObservers(
                     onSingleTap: {
                         // Single tap will hide dict if present, otherwise toggle chrome.
-                        if engine.currentDictEntry != nil {
+                        if engine.currentDictResult != nil {
                             engine.clearDictAndHighlight()
                         } else {
                             // Toggle chrome on any single tap
@@ -238,61 +238,67 @@ extension View {
         )
     }
 }
-
 // MARK: - Dictionary Popover
 struct DictionaryPopover: View {
-    let entry: DictionaryEntry
+    let result: DictionaryResult
 
-    @State private var selectedSenseIndex = 0
+    @State private var selectedEntryIndex: Int
 
-    init(entry: DictionaryEntry, initialSenseIndex: Int = 0) {
-        self.entry = entry
+    init(result: DictionaryResult, initialEntryIndex: Int = 0) {
+        self.result = result
+        _selectedEntryIndex = State(initialValue: initialEntryIndex)
     }
 
-    private var currentSense: DictionaryEntry.Sense? {
-        return entry.senses[selectedSenseIndex]
+    private var currentEntry: Entry? {
+        guard !result.entries.isEmpty,
+              selectedEntryIndex >= 0,
+              selectedEntryIndex < result.entries.count
+        else {
+            return nil
+        }
+        return result.entries[selectedEntryIndex]
     }
 
     var body: some View {
         VStack(alignment: .leading) {
-            if let sense = currentSense {
-                // Header: pinyin + sense index
+            if let entry = currentEntry {
+                // Header: pinyin + entry index
                 HStack(alignment: .firstTextBaseline) {
-                    Text(sense.accentedPinyin.joined(separator: " "))
+                    Text(entry.accentedPinyin.joined(separator: " "))
                         .font(.footnote)
                         .fontWeight(.bold)
                         .foregroundStyle(.secondary)
                     Spacer()
-                    Text("\(selectedSenseIndex + 1) / \(entry.senses.count)")
+                    Text("\(selectedEntryIndex + 1) / \(result.entries.count)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
 
                 // Headword: simplified [traditional]
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    Text(sense.simplified)
+                    Text(entry.simplified)
                         .font(.title2)
 
                     // Only show [traditional] if different.
-                    if sense.traditional != sense.simplified {
-                        Text("[\(sense.traditional)]")
+                    if entry.traditional != entry.simplified {
+                        Text("[\(entry.traditional)]")
                             .font(.title2)
                             .foregroundStyle(.secondary)
                     }
                 }
             }
 
-            // Senses: horizontally swipable, each page is a native List
-            TabView(selection: $selectedSenseIndex) {
-                ForEach(Array(entry.senses.enumerated()), id: \.offset) {
-                    index,
-                    sense in
+            // Entries: horizontally swipable, each page shows all senses
+            TabView(selection: $selectedEntryIndex) {
+                ForEach(Array(result.entries.enumerated()), id: \.offset) { index, entry in
                     ScrollView {
                         VStack(alignment: .leading, spacing: 6) {
                             ForEach(
-                                Array(sense.definitions.enumerated()),
+                                Array(entry.senses.enumerated()),
                                 id: \.offset
-                            ) { defIndex, definition in
+                            ) { defIndex, sense in
+                                let definition = sense.glosses.joined(separator: "; ")
+
                                 HStack(
                                     alignment: .firstTextBaseline,
                                     spacing: 8
@@ -492,34 +498,34 @@ struct SettingsSheet: View {
 }
 
 // MARK: - Preview
-struct DictionaryPopover_Previews: PreviewProvider {
-    static var previews: some View {
-        let sample = DictionaryEntry(
-            headword: "长",
-            senses: [
-                .init(
-                    traditional: "長",
-                    simplified: "长",
-                    accentedPinyin: ["cháng"],
-                    definitions: [
-                        "long; lengthy",
-                        "to grow; to develop",
-                    ]
-                ),
-                .init(
-                    traditional: "長",
-                    simplified: "长",
-                    accentedPinyin: ["zhǎng"],
-                    definitions: [
-                        "to head; to lead",
-                        "elder; senior; chief",
-                    ]
-                ),
-            ]
-        )
-
-        DictionaryPopover(entry: sample)
-            .padding()
-            .previewLayout(.sizeThatFits)
-    }
-}
+//struct DictionaryPopover_Previews: PreviewProvider {
+//    static var previews: some View {
+//        let sample = DictionaryEntry(
+//            headword: "长",
+//            senses: [
+//                .init(
+//                    traditional: "長",
+//                    simplified: "长",
+//                    accentedPinyin: ["cháng"],
+//                    glosses: [
+//                        "long; lengthy",
+//                        "to grow; to develop",
+//                    ]
+//                ),
+//                .init(
+//                    traditional: "長",
+//                    simplified: "长",
+//                    accentedPinyin: ["zhǎng"],
+//                    glosses: [
+//                        "to head; to lead",
+//                        "elder; senior; chief",
+//                    ]
+//                ),
+//            ]
+//        )
+//
+//        DictionaryPopover(entry: sample)
+//            .padding()
+//            .previewLayout(.sizeThatFits)
+//    }
+//}

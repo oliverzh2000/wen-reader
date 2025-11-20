@@ -6,98 +6,158 @@
 //
 
 import Foundation
+import SQLite3
 
 protocol DictionaryService {
     /// Return the full dictionary entry (all senses) for a word, if present.
-    func lookup(_ word: String) async -> DictionaryEntry?
-    
-    /// Return a concise gloss for the word at `wordIndex` in `sentence`.
-    /// Later we’ll implement this with the LLM; for now it can be a dumb fallback.
-    func gloss(atIndex wordIndex: Int, in sentence: [String]) async throws -> String?
+    func lookup(_ word: String) async -> DictionaryResult?
 }
 
-struct DictionaryEntry {
-    let headword: String        // The lookup key, e.g. "长"
-    let senses: [Sense]         // All possible readings/pronunciations/meanings
-    
-    struct Sense {
-        let traditional: String // "長"
-        let simplified: String  // "长"
-        let accentedPinyin: [String]    // ["cháng"], or ["jī", "chǔ"] for multi-char words
-        let definitions: [String]
-    }
+// All dictionary entries returned for a lookup.
+// Typically: all possible readings (pronunciations) and meanings for a given written form.
+struct DictionaryResult {
+    let entries: [Entry]
 }
 
-final class CEDICTWithLLM: DictionaryService {
-    // MARK: - Static dictionary storage
-    /// Loaded once per process, shared by all instances.
-    private static let entries: [String: DictionaryEntry] = {
-        // TODO: fix lazy loading
-        loadDictionary()
-    }()
-     
-    // MARK: - DictionaryService
-    func forceLoad() {
-        _ = Self.entries;
+// One pronunciation of a specific written form (unique trad/simp/pinyin triple in CC-CEDICT).
+struct Entry {
+    let traditional: String   // e.g. "長"
+    let simplified: String    // e.g. "长"
+    let accentedPinyin: [String]  // e.g. ["cháng"] or ["jī", "chǔ"] for multi-syllable words
+    let senses: [Sense]
+}
+
+// One logically distinct meaning for this pronunciation.
+struct Sense {
+    // Each gloss is a brief, interchangeable translation for this sense.
+    let glosses: [String]     // e.g. ["sturdy", "tough"]
+}
+
+private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+
+final class CedictSqlService: DictionaryService {
+    static let shared = CedictSqlService()
+    private var db: OpaquePointer?
+
+    // Adjust to match how you bundle the DB
+    private let dbFileName = "cedict"      // cedict.sqlite -> "cedict"
+    private let dbFileExtension = "sqlite"
+
+    private init() {
+        openDatabaseIfNeeded()
     }
-    
-    func lookup(_ word: String) async -> DictionaryEntry? {
-        Self.entries[word]
-    }
-    
-    func gloss(atIndex wordIndex: Int, in sentence: [String]) async throws -> String? {
-        guard sentence.indices.contains(wordIndex) else { return nil }
-        
-        let word = sentence[wordIndex]
-        guard let entry = Self.entries[word] else { return nil }
-        
-        // TODO: later
-        //  - send word, sentence, senses to the LLM
-        //  - pick the best sense and compress to a concise gloss.
-        //
-        // For now: dumb fallback – first definition of the first sense.
-        return entry.senses.first?.definitions.first
-    }
-    
-    // MARK: - CEDICT loading
-    private static func loadDictionary() -> [String: DictionaryEntry] {
-        guard let url = Bundle.main.url(forResource: "cedict", withExtension: "json") else {
-            fatalError("Could not find cedict.json in bundle resources.")
+
+    deinit {
+        if let db {
+            sqlite3_close(db)
         }
-        
-        do {
-            let data = try Data(contentsOf: url)
-            
-            // { "长": [RawCEDICTEntry, ...], "系": [...], ... }
-            let raw = try JSONDecoder().decode([String: [RawCEDICTEntry]].self, from: data)
-            
-            var result: [String: DictionaryEntry] = [:]
-            result.reserveCapacity(raw.count)
-            
-            for (headword, rawSenses) in raw {
-                let senses: [DictionaryEntry.Sense] = rawSenses.map { raw in
-                    DictionaryEntry.Sense(
-                        traditional: raw.t,
-                        simplified: raw.s,
-                        accentedPinyin: raw.p
-                            .split(separator: " ")
-                            .map { numberedToAccentedPinyin(String($0)) },
-                        definitions: raw.d
-                    )
-                }
-                
-                result[headword] = DictionaryEntry(
-                    headword: headword,
+    }
+
+    // Optional: eager load
+    func forceLoad() {
+        openDatabaseIfNeeded()
+    }
+
+    func lookup(_ word: String) async -> DictionaryResult? {
+        openDatabaseIfNeeded()
+        guard let db else { return nil }
+
+        let sql = """
+        SELECT trad, simp, pinyin, senses_raw
+        FROM cedict_entries
+        WHERE trad = ?1 OR simp = ?1;
+        """
+
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            print("CEDICTWithLLM: prepare failed: \(msg)")
+            return nil
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        // Bind the same word to both trad and simp via ?1
+        (word as NSString).utf8String.map {
+            sqlite3_bind_text(stmt, 1, $0, -1, SQLITE_TRANSIENT)
+        }
+
+        var entries: [Entry] = []
+
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            guard
+                let tradC = sqlite3_column_text(stmt, 0),
+                let simpC = sqlite3_column_text(stmt, 1),
+                let pinyinC = sqlite3_column_text(stmt, 2),
+                let sensesC = sqlite3_column_text(stmt, 3)
+            else {
+                continue
+            }
+
+            let trad = String(cString: tradC)
+            let simp = String(cString: simpC)
+            let pinyinRaw = String(cString: pinyinC)
+            let sensesRaw = String(cString: sensesC)
+
+            let accentedPinyin: [String] = pinyinRaw
+                .split(separator: " ")
+                .map { Self.numberedToAccentedPinyin(String($0)) }
+
+            let senses = Self.parseSenses(from: sensesRaw)
+
+            entries.append(
+                Entry(
+                    traditional: trad,
+                    simplified: simp,
+                    accentedPinyin: accentedPinyin,
                     senses: senses
                 )
-            }
-            
-            return result
-        } catch {
-            fatalError("Failed to load cedict.json: \(error)")
+            )
+        }
+
+        guard !entries.isEmpty else { return nil }
+        return DictionaryResult(entries: entries)
+    }
+
+    // MARK: - DB open
+    private func openDatabaseIfNeeded() {
+        guard db == nil else { return }
+
+        guard let url = Bundle.main.url(forResource: dbFileName, withExtension: dbFileExtension) else {
+            print("CEDICTWithLLM: could not find cedict DB in bundle")
+            return
+        }
+
+        var handle: OpaquePointer?
+        let rc = sqlite3_open_v2(url.path, &handle, SQLITE_OPEN_READONLY, nil)
+        if rc != SQLITE_OK {
+            let msg = String(cString: sqlite3_errmsg(handle))
+            print("CEDICTWithLLM: failed to open DB: \(msg)")
+            if let handle { sqlite3_close(handle) }
+            return
+        }
+
+        db = handle
+    }
+
+    // MARK: - Parsing helpers
+    private static func parseSenses(from raw: String) -> [Sense] {
+        // "sense1/sense2/sense3", each sense = "gloss1; gloss2"
+        let senseStrings = raw
+            .split(separator: "/")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        return senseStrings.map { senseStr in
+            let glosses = senseStr
+                .split(separator: ";")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+
+            return Sense(glosses: glosses)
         }
     }
-    
+
+    // MARK: - Pinyin conversion
     private static func numberedToAccentedPinyin(_ numbered: String) -> String {
         // 1. Extract tone number (1–5)
         guard let toneChar = numbered.last,
@@ -155,13 +215,5 @@ final class CEDICTWithLLM: DictionaryService {
         result.replaceSubrange(idx...idx, with: String(accented))
         
         return result
-    }
-
-    
-    private struct RawCEDICTEntry: Decodable {
-        let t: String       // traditional
-        let s: String       // simplified
-        let p: String       // numbered pinyin like "chang2" or "ji1 chu3"
-        let d: [String]     // definitions
     }
 }

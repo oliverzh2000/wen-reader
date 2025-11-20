@@ -43,9 +43,8 @@ final class ReadiumEngine: ObservableObject {
     
     private let interactionManager = ReaderInteractionManager()
     
-    private let dictionaryService = CEDICTWithLLM()
     @Published var currentWordHit: WordHit?
-    @Published var currentDictEntry: DictionaryEntry?
+    @Published var currentDictResult: DictionaryResult?
 
     // Book identity for persistence
     private var bookId: UUID?
@@ -131,18 +130,15 @@ final class ReadiumEngine: ObservableObject {
                     
                     if let word = hit?.word {
                         // Full dictionary entry (all senses)
-                        if let entry = await self.dictionaryService.lookup(word) {
+                        if let entry = await CedictSqlService.shared.lookup(word) {
                             dump(entry)
-                            currentDictEntry = entry
+                            currentDictResult = entry
                         }
                     } else {
                         clearDictAndHighlight()
                     }
                 }
             }
-            
-            // TODO: make class static and move forceLoad into Task at app init.
-            dictionaryService.forceLoad()
         } catch {
             self.openError = error
         }
@@ -151,7 +147,7 @@ final class ReadiumEngine: ObservableObject {
     }
     
     func clearDictAndHighlight() {
-        currentDictEntry = nil
+        currentDictResult = nil
         interactionManager.clearHighlight()
     }
 
