@@ -61,10 +61,14 @@ final class ReadiumEngine: ObservableObject {
                     dictStack.removeAll()
                     dictStack.append(result)
                     currentDictResult = result
-                    return
+                } else {
+                    // TODO: the logic for removing highlights and syncing to ReaderInteractionManager's currentWordHit is very complex and brittle!
+                    dictStack.removeAll()
+                    currentDictResult = nil
                 }
+            } else {
+                closeDictionaryAndClearHighlight()
             }
-            closeDictionaryAndClearHighlight()
         }
     }
 
