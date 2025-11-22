@@ -254,28 +254,29 @@ struct GlossView: View {
     let onLinkTap: (LinkedHeadword) -> Void
 
     var body: some View {
-        // Render fragments inline
         HStack(alignment: .firstTextBaseline, spacing: 0) {
-            ForEach(Array(gloss.fragments.enumerated()), id: \.offset) {
-                _,
-                fragment in
+            ForEach(Array(gloss.fragments.enumerated()), id: \.offset) { _, fragment in
                 switch fragment {
                 case .text(let text):
                     Text(text)
-
+                case .accentedPinyin(let syllables):
+                    Text("\(syllables.joined(separator: " "))")
+                        .bold()
+                        .foregroundStyle(.secondary)
                 case .link(let headword):
                     Button {
                         onLinkTap(headword)
                     } label: {
                         HStack(spacing: 2) {
                             Text(headword.simplified)
-
+                            
                             if headword.traditional != headword.simplified {
                                 Text("[\(headword.traditional)]")
                                     .foregroundStyle(.secondary)
                             }
-
-                            Text(headword.accentedPinyin.joined(separator: " "))
+                            
+                            Text("\(headword.accentedPinyin.joined(separator: " "))")
+                                .bold()
                                 .foregroundStyle(.secondary)
                         }
                     }
@@ -284,10 +285,9 @@ struct GlossView: View {
                 }
             }
         }
-        .font(.subheadline)
-        .fixedSize(horizontal: false, vertical: true)
     }
 }
+
 
 // MARK: - Dictionary Popover
 struct DictionaryPopover: View {
@@ -339,8 +339,8 @@ struct DictionaryPopover: View {
 
                 if let entry = currentEntry {
                     Text(entry.accentedPinyin.joined(separator: " "))
-                        .font(.footnote)
-                        .fontWeight(.bold)
+                        .font(.headline)
+                        .bold()
                         .foregroundStyle(.secondary)
                 }
 
@@ -396,6 +396,7 @@ struct DictionaryPopover: View {
                                             )
                                         }
                                     }
+                                    .font(.subheadline)
                                 }
                                 .padding(.vertical, 2)
                             }

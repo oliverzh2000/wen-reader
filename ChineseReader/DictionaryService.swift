@@ -41,6 +41,7 @@ struct Gloss: Hashable {
 /// A piece of a gloss: either plain text, pinyin, or link to another headword.
 enum GlossFragment: Hashable {
     case text(String)
+    case accentedPinyin([String])
     case link(LinkedHeadword)
 }
 
@@ -191,8 +192,9 @@ final class CedictSqlService: DictionaryService {
         let pattern = #"([\p{Han}]+)\|([\p{Han}]+)\[([A-Za-z0-9 ]+)\]"#
 
         guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
-            // Fallback: treat entire gloss as plain text.
-            return Gloss(fragments: [.text(text)])
+            // No link regex? Still try to pull out [pinyin].
+            let fragments = splitTextAndPinyin(text)
+            return Gloss(fragments: fragments)
         }
 
         var fragments: [GlossFragment] = []
@@ -214,17 +216,18 @@ final class CedictSqlService: DictionaryService {
                 continue
             }
 
-            // Text before this match -> plain text fragment.
+            // Text before this link → may contain [pinyin], so split it.
             if currentLocation < range.lowerBound {
                 let prefix = String(text[currentLocation..<range.lowerBound])
                 if !prefix.isEmpty {
-                    fragments.append(.text(prefix))
+                    fragments.append(contentsOf: splitTextAndPinyin(prefix))
                 }
             }
 
-            // The matched headword -> link fragment.
+            // The matched headword → link fragment.
             let trad = String(text[tradRange])
             let simp = String(text[simpRange])
+
             let accentedPinyin: [String] = text[pinyinRange]
                 .split(separator: " ")
                 .map { Self.numberedToAccentedPinyin(String($0)) }
@@ -239,7 +242,69 @@ final class CedictSqlService: DictionaryService {
             currentLocation = range.upperBound
         }
 
-        // Any remaining text after the last match.
+        // Any remaining text after the last link → may contain [pinyin].
+        if currentLocation < text.endIndex {
+            let suffix = String(text[currentLocation..<text.endIndex])
+            if !suffix.isEmpty {
+                fragments.append(contentsOf: splitTextAndPinyin(suffix))
+            }
+        }
+
+        // If we somehow didn’t find any fragments, try pure [pinyin] detection.
+        if fragments.isEmpty {
+            fragments = splitTextAndPinyin(text)
+        }
+
+        return Gloss(fragments: fragments)
+    }
+
+
+    private static func splitTextAndPinyin(_ text: String) -> [GlossFragment] {
+        guard !text.isEmpty else { return [] }
+
+        // Matches [fu4 qin5] with content captured inside the brackets.
+        let pattern = #"\[([A-Za-z0-9 ]+)\]"#
+
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+            return [.text(text)]
+        }
+
+        var fragments: [GlossFragment] = []
+        var currentLocation = text.startIndex
+
+        let nsText = text as NSString
+        let matches = regex.matches(
+            in: text,
+            range: NSRange(location: 0, length: nsText.length)
+        )
+
+        for match in matches {
+            guard
+                let range = Range(match.range, in: text),
+                let pinyinRange = Range(match.range(at: 1), in: text)
+            else {
+                continue
+            }
+
+            // Text before this [pinyin] → plain text.
+            if currentLocation < range.lowerBound {
+                let prefix = String(text[currentLocation..<range.lowerBound])
+                if !prefix.isEmpty {
+                    fragments.append(.text(prefix))
+                }
+            }
+
+            // The pinyin inside [...] → accent-converted pinyin fragment.
+            let numbered = String(text[pinyinRange])
+            let accentedPinyin: [String] = numbered
+                .split(separator: " ")
+                .map { Self.numberedToAccentedPinyin(String($0)) }
+            fragments.append(.accentedPinyin(accentedPinyin))
+
+            currentLocation = range.upperBound
+        }
+
+        // Any trailing text after the last [pinyin]
         if currentLocation < text.endIndex {
             let suffix = String(text[currentLocation..<text.endIndex])
             if !suffix.isEmpty {
@@ -247,12 +312,11 @@ final class CedictSqlService: DictionaryService {
             }
         }
 
-        // If we somehow didn’t find any fragments, fall back to a single text fragment.
         if fragments.isEmpty {
             fragments = [.text(text)]
         }
 
-        return Gloss(fragments: fragments)
+        return fragments
     }
 
 
