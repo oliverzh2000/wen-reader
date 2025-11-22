@@ -21,17 +21,36 @@ struct DictionaryResult {
 
 // One pronunciation of a specific written form (unique trad/simp/pinyin triple in CC-CEDICT).
 struct Entry {
-    let traditional: String   // e.g. "長"
-    let simplified: String    // e.g. "长"
-    let accentedPinyin: [String]  // e.g. ["cháng"] or ["jī", "chǔ"] for multi-syllable words
+    let traditional: String
+    let simplified: String
+    let accentedPinyin: [String]
     let senses: [Sense]
 }
 
 // One logically distinct meaning for this pronunciation.
 struct Sense {
-    // Each gloss is a brief, interchangeable translation for this sense.
-    let glosses: [String]     // e.g. ["sturdy", "tough"]
+    // Each gloss can be made up of plain text and clickable links.
+    let glosses: [Gloss]
 }
+
+/// A single gloss, made up of fragments.
+struct Gloss: Hashable {
+    let fragments: [GlossFragment]
+}
+
+/// A piece of a gloss: either plain text, pinyin, or link to another headword.
+enum GlossFragment: Hashable {
+    case text(String)
+    case link(LinkedHeadword)
+}
+
+/// A cross-reference like 個|个[ge4].
+struct LinkedHeadword: Hashable {
+    let traditional: String
+    let simplified: String
+    let accentedPinyin: [String]
+}
+
 
 private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
@@ -148,14 +167,94 @@ final class CedictSqlService: DictionaryService {
             .filter { !$0.isEmpty }
 
         return senseStrings.map { senseStr in
-            let glosses = senseStr
+            let glossStrings = senseStr
                 .split(separator: ";")
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }
 
+            let glosses: [Gloss] = glossStrings.map { glossStr in
+                parseGloss(String(glossStr))
+            }
+
             return Sense(glosses: glosses)
         }
     }
+    
+    private static func parseGloss(_ raw: String) -> Gloss {
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else {
+            return Gloss(fragments: [])
+        }
+
+        // Pattern for trad|simp[pinyin] (standard CC-CEDICT form).
+        // \p{Han} covers Chinese characters reasonably well.
+        let pattern = #"([\p{Han}]+)\|([\p{Han}]+)\[([A-Za-z0-9 ]+)\]"#
+
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+            // Fallback: treat entire gloss as plain text.
+            return Gloss(fragments: [.text(text)])
+        }
+
+        var fragments: [GlossFragment] = []
+        var currentLocation = text.startIndex
+
+        let nsText = text as NSString
+        let matches = regex.matches(
+            in: text,
+            range: NSRange(location: 0, length: nsText.length)
+        )
+
+        for match in matches {
+            guard
+                let range = Range(match.range, in: text),
+                let tradRange = Range(match.range(at: 1), in: text),
+                let simpRange = Range(match.range(at: 2), in: text),
+                let pinyinRange = Range(match.range(at: 3), in: text)
+            else {
+                continue
+            }
+
+            // Text before this match -> plain text fragment.
+            if currentLocation < range.lowerBound {
+                let prefix = String(text[currentLocation..<range.lowerBound])
+                if !prefix.isEmpty {
+                    fragments.append(.text(prefix))
+                }
+            }
+
+            // The matched headword -> link fragment.
+            let trad = String(text[tradRange])
+            let simp = String(text[simpRange])
+            let accentedPinyin: [String] = text[pinyinRange]
+                .split(separator: " ")
+                .map { Self.numberedToAccentedPinyin(String($0)) }
+
+            let headword = LinkedHeadword(
+                traditional: trad,
+                simplified: simp,
+                accentedPinyin: accentedPinyin
+            )
+            fragments.append(.link(headword))
+
+            currentLocation = range.upperBound
+        }
+
+        // Any remaining text after the last match.
+        if currentLocation < text.endIndex {
+            let suffix = String(text[currentLocation..<text.endIndex])
+            if !suffix.isEmpty {
+                fragments.append(.text(suffix))
+            }
+        }
+
+        // If we somehow didn’t find any fragments, fall back to a single text fragment.
+        if fragments.isEmpty {
+            fragments = [.text(text)]
+        }
+
+        return Gloss(fragments: fragments)
+    }
+
 
     // MARK: - Pinyin conversion
     private static func numberedToAccentedPinyin(_ numbered: String) -> String {

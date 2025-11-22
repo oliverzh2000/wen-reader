@@ -68,29 +68,39 @@ struct ReaderView: View {
 
             GeometryReader { proxy in
                 if let result = engine.currentDictResult {
+                    // If the word is in the bottom half of the screen, show popover on top, else bottom
                     let screenHeight = proxy.size.height
                     let hitY =
                         engine.currentWordHit?.hitPoint.y ?? screenHeight / 2
-
-                    // If the word is in the bottom half of the screen, show popover on top, else bottom
                     let alignment: Alignment =
                         (hitY > screenHeight / 2) ? .top : .bottom
                     let edge: Edge = (alignment == .top) ? .top : .bottom
 
                     // Popover pinned to top or bottom
-                    DictionaryPopover(result: result)
-                        .padding()
-                        .frame(maxHeight: 300)
-                        .frame(
-                            maxWidth: .infinity,
-                            maxHeight: .infinity,
-                            alignment: alignment
-                        )
-                        .transition(
-                            .opacity
-                                .combined(with: .move(edge: edge))
-                        )
-                        .zIndex(1)
+                    DictionaryPopover(
+                        result: result,
+                        initialSenseIndex: 0,
+                        canGoBack: engine.canGoBackInDictionary,
+                        onBack: {
+                            engine.popDictionary()
+                        },
+                        onLinkTap: { headword in
+                            // Use either trad or simp; the SQL WHERE matches both.
+                            engine.pushDictionary(for: headword.simplified)
+                        }
+                    )
+                    .padding()
+                    .frame(maxHeight: 300)
+                    .frame(
+                        maxWidth: .infinity,
+                        maxHeight: .infinity,
+                        alignment: alignment
+                    )
+                    .transition(
+                        .opacity
+                            .combined(with: .move(edge: edge))
+                    )
+                    .zIndex(1)
                 }
             }
         }
@@ -127,7 +137,7 @@ struct ReaderView: View {
                     onSingleTap: {
                         // Single tap will hide dict if present, otherwise toggle chrome.
                         if engine.currentDictResult != nil {
-                            engine.clearDictAndHighlight()
+                            engine.closeDictionaryAndClearHighlight()
                         } else {
                             // Toggle chrome on any single tap
                             withAnimation(.easeInOut) {
@@ -238,48 +248,115 @@ extension View {
         )
     }
 }
+
+struct GlossView: View {
+    let gloss: Gloss
+    let onLinkTap: (LinkedHeadword) -> Void
+
+    var body: some View {
+        // Render fragments inline
+        HStack(alignment: .firstTextBaseline, spacing: 0) {
+            ForEach(Array(gloss.fragments.enumerated()), id: \.offset) {
+                _,
+                fragment in
+                switch fragment {
+                case .text(let text):
+                    Text(text)
+
+                case .link(let headword):
+                    Button {
+                        onLinkTap(headword)
+                    } label: {
+                        HStack(spacing: 2) {
+                            Text(headword.simplified)
+
+                            if headword.traditional != headword.simplified {
+                                Text("[\(headword.traditional)]")
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            Text(headword.accentedPinyin.joined(separator: " "))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.blue)
+                }
+            }
+        }
+        .font(.subheadline)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
 // MARK: - Dictionary Popover
 struct DictionaryPopover: View {
     let result: DictionaryResult
+    let canGoBack: Bool
+    let onBack: () -> Void
+    let onLinkTap: (LinkedHeadword) -> Void
 
-    @State private var selectedEntryIndex: Int
+    @State private var selectedSenseIndex: Int
 
-    init(result: DictionaryResult, initialEntryIndex: Int = 0) {
+    init(
+        result: DictionaryResult,
+        initialSenseIndex: Int = 0,
+        canGoBack: Bool,
+        onBack: @escaping () -> Void,
+        onLinkTap: @escaping (LinkedHeadword) -> Void
+    ) {
         self.result = result
-        _selectedEntryIndex = State(initialValue: initialEntryIndex)
+        self.canGoBack = canGoBack
+        self.onBack = onBack
+        self.onLinkTap = onLinkTap
+        _selectedSenseIndex = State(initialValue: initialSenseIndex)
     }
 
     private var currentEntry: Entry? {
         guard !result.entries.isEmpty,
-              selectedEntryIndex >= 0,
-              selectedEntryIndex < result.entries.count
+            selectedSenseIndex >= 0,
+            selectedSenseIndex < result.entries.count
         else {
             return nil
         }
-        return result.entries[selectedEntryIndex]
+        return result.entries[selectedSenseIndex]
     }
 
     var body: some View {
-        VStack(alignment: .leading) {
-            if let entry = currentEntry {
-                // Header: pinyin + entry index
-                HStack(alignment: .firstTextBaseline) {
+        VStack(alignment: .leading, spacing: 8) {
+
+            // Header: Back button (if stack > 1), pinyin, index
+            HStack(alignment: .firstTextBaseline) {
+                if canGoBack {
+                    Button {
+                        onBack()
+                    } label: {
+                        Image(systemName: "chevron.backward")
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.trailing, 4)
+                }
+
+                if let entry = currentEntry {
                     Text(entry.accentedPinyin.joined(separator: " "))
                         .font(.footnote)
                         .fontWeight(.bold)
                         .foregroundStyle(.secondary)
-                    Spacer()
-                    Text("\(selectedEntryIndex + 1) / \(result.entries.count)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
 
-                // Headword: simplified [traditional]
+                Spacer()
+
+                Text("\(selectedSenseIndex + 1) / \(result.entries.count)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            // Headword: simplified [traditional]
+            if let entry = currentEntry {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text(entry.simplified)
                         .font(.title2)
 
-                    // Only show [traditional] if different.
                     if entry.traditional != entry.simplified {
                         Text("[\(entry.traditional)]")
                             .font(.title2)
@@ -289,39 +366,43 @@ struct DictionaryPopover: View {
             }
 
             // Entries: horizontally swipable, each page shows all senses
-            TabView(selection: $selectedEntryIndex) {
-                ForEach(Array(result.entries.enumerated()), id: \.offset) { index, entry in
+            TabView(selection: $selectedSenseIndex) {
+                ForEach(Array(result.entries.enumerated()), id: \.offset) {
+                    index,
+                    entry in
                     ScrollView {
-                        VStack(alignment: .leading, spacing: 6) {
+                        VStack(alignment: .leading, spacing: 8) {
                             ForEach(
                                 Array(entry.senses.enumerated()),
                                 id: \.offset
                             ) { defIndex, sense in
-                                let definition = sense.glosses.joined(separator: "; ")
-
-                                HStack(
-                                    alignment: .firstTextBaseline,
-                                    spacing: 8
-                                ) {
-                                    // Definition indexes.
+                                HStack(alignment: .top, spacing: 8) {
+                                    // Sense index
                                     Text("\(defIndex + 1).")
                                         .fontDesign(.monospaced)
                                         .font(.caption)
                                         .fontWeight(.medium)
                                         .foregroundStyle(.secondary)
 
-                                    Text(definition)
-                                        .font(.subheadline)
-                                        .fixedSize(
-                                            horizontal: false,
-                                            vertical: true
-                                        )
+                                    // All glosses for this sense
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        ForEach(
+                                            Array(sense.glosses.enumerated()),
+                                            id: \.offset
+                                        ) { _, gloss in
+                                            GlossView(
+                                                gloss: gloss,
+                                                onLinkTap: onLinkTap
+                                            )
+                                        }
+                                    }
                                 }
                                 .padding(.vertical, 2)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, 4)
                     }
                     .tag(index)
                 }

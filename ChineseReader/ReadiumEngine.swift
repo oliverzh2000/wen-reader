@@ -41,14 +41,59 @@ final class ReadiumEngine: ObservableObject {
         )
     )
     
-    private let interactionManager = ReaderInteractionManager()
-    
-    @Published var currentWordHit: WordHit?
-    @Published var currentDictResult: DictionaryResult?
-
     // Book identity for persistence
     private var bookId: UUID?
     private var lastSavedAt = Date.distantPast
+    
+    private let interactionManager = ReaderInteractionManager()
+    
+    // MARK: Dictionary
+    @Published var currentWordHit: WordHit?
+    @Published private(set) var currentDictResult: DictionaryResult?
+    private var dictStack: [DictionaryResult] = []
+    private let dictionaryService: DictionaryService = CedictSqlService.shared
+
+    // New lookup entry point.
+    func updateDictionaryResult(for word: String?) {
+        Task {
+            if let word {
+                if let result = await dictionaryService.lookup(word) {
+                    dictStack.removeAll()
+                    dictStack.append(result)
+                    currentDictResult = result
+                    return
+                }
+            }
+            closeDictionaryAndClearHighlight()
+        }
+    }
+
+    func closeDictionaryAndClearHighlight() {
+        dictStack.removeAll()
+        currentDictResult = nil
+        interactionManager.clearHighlight()
+    }
+    
+    // To click into a link.
+    func pushDictionary(for word: String) {
+        Task {
+            if let result = await dictionaryService.lookup(word) {
+                dictStack.append(result)
+                currentDictResult = result
+            }
+        }
+    }
+
+    // To go back after clicking into a link.
+    func popDictionary() {
+        guard !dictStack.isEmpty else { return }
+        dictStack.removeLast()
+        currentDictResult = dictStack.last
+    }
+
+    var canGoBackInDictionary: Bool {
+        dictStack.count > 1
+    }
 
     // MARK: Open
     func open(bookId: UUID, fileURL: URL, sender: UIView?) async {
@@ -124,20 +169,7 @@ final class ReadiumEngine: ObservableObject {
             interactionManager.onWordHit = { [weak self] hit in
                 guard let self else { return }
                 self.currentWordHit = hit
-
-                Task { [weak self] in
-                    guard let self else { return }
-                    
-                    if let word = hit?.word {
-                        // Full dictionary entry (all senses)
-                        if let entry = await CedictSqlService.shared.lookup(word) {
-                            dump(entry)
-                            currentDictResult = entry
-                        }
-                    } else {
-                        clearDictAndHighlight()
-                    }
-                }
+                updateDictionaryResult(for: hit?.word)
             }
         } catch {
             self.openError = error
@@ -145,20 +177,15 @@ final class ReadiumEngine: ObservableObject {
 
         isOpening = false
     }
-    
-    func clearDictAndHighlight() {
-        currentDictResult = nil
-        interactionManager.clearHighlight()
-    }
 
     // MARK: Navigation helpers you can call from SwiftUI buttons
     func go(to link: RLink) async {
-        clearDictAndHighlight()
+//        closeDictionary()
         await navigatorVC?.go(to: link)
     }
 
     func go(to locator: Locator) async {
-        clearDictAndHighlight()
+//        closeDictionary()
         await navigatorVC?.go(to: locator)
     }
 
@@ -193,7 +220,7 @@ extension ReadiumEngine: EPUBNavigatorDelegate {
     }
 
     func navigator(_ navigator: Navigator, locationDidChange locator: Locator) {
-        clearDictAndHighlight()
+        closeDictionaryAndClearHighlight()
         
         currentLocation = locator
         saveLastLocation(locator)
