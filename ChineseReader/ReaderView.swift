@@ -249,45 +249,75 @@ extension View {
     }
 }
 
-struct GlossView: View {
-    let gloss: Gloss
-    let onLinkTap: (LinkedHeadword) -> Void
+// MARK: - SenseView
+struct SenseView: View {
+    let sense: Sense
+    // We don't call this directly; instead we encode into URL and
+    // let DictionaryPopover's .openURL handler call onLinkTap.
+    // Keeping the closure here in case you want to evolve this later.
+    let makeLinkURL: (LinkedHeadword) -> URL?
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 0) {
-            ForEach(Array(gloss.fragments.enumerated()), id: \.offset) { fragmentIndex, fragment in
-                let spaceUnlessFirst = fragmentIndex > 0 ? " " : ""
-                switch fragment {
-                case .text(let text):
-                    Text(text)
-                case .accentedPinyin(let syllables):
-                    // Always space before pinyins (unless first fragment).
-                    Text(spaceUnlessFirst + "\(syllables.joined(separator: " "))")
-                        .bold()
-                        .foregroundStyle(.secondary)
-                case .link(let headword):
-                    Button {
-                        onLinkTap(headword)
-                    } label: {
-                        HStack(spacing: 0) {
-                            // Always space before headwords (unless first fragment).
-                            Text(spaceUnlessFirst + headword.simplified)
-                            
-                            if headword.traditional != headword.simplified {
-                                Text("[\(headword.traditional)]")
-                            }
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.blue)
+        Text(makeAttributedString())
+            .font(.subheadline)
+            .fixedSize(horizontal: false, vertical: true) // allow multiline wrap
+    }
+
+    private func makeAttributedString() -> AttributedString {
+        var result = AttributedString()
+
+        for (glossIndex, gloss) in sense.glosses.enumerated() {
+            if glossIndex > 0 {
+                result.append(AttributedString("; "))
+            }
+            result.append(attributedString(for: gloss))
+        }
+
+        return result
+    }
+
+    private func attributedString(for gloss: Gloss) -> AttributedString {
+        var output = AttributedString()
+
+        for (fragmentIndex, fragment) in gloss.fragments.enumerated() {
+            if fragmentIndex > 0 {
+                output.append(AttributedString(" "))
+            }
+
+            switch fragment {
+            case .text(let text):
+                output.append(AttributedString(text))
+
+            case .accentedPinyin(let syllables):
+                var pinyin = AttributedString(syllables.joined(separator: " "))
+                pinyin.inlinePresentationIntent = .stronglyEmphasized
+                pinyin.foregroundColor = .secondary
+                output.append(pinyin)
+
+            case .link(let headword):
+                var label = AttributedString(headword.simplified)
+                if headword.traditional != headword.simplified {
+                    label.append(AttributedString("[\(headword.traditional)]"))
                 }
+
+                // Style like a link
+                label.foregroundColor = .blue
+
+                // Add URL so SwiftUI treats it as a tappable link
+                if let url = makeLinkURL(headword) {
+                    label.link = url
+                }
+
+                output.append(label)
             }
         }
+
+        return output
     }
 }
 
-
 // MARK: - Dictionary Popover
+
 struct DictionaryPopover: View {
     let result: DictionaryResult
     let canGoBack: Bool
@@ -312,8 +342,8 @@ struct DictionaryPopover: View {
 
     private var currentEntry: Entry? {
         guard !result.entries.isEmpty,
-            selectedSenseIndex >= 0,
-            selectedSenseIndex < result.entries.count
+              selectedSenseIndex >= 0,
+              selectedSenseIndex < result.entries.count
         else {
             return nil
         }
@@ -365,37 +395,26 @@ struct DictionaryPopover: View {
 
             // Entries: horizontally swipable, each page shows all senses
             TabView(selection: $selectedSenseIndex) {
-                ForEach(Array(result.entries.enumerated()), id: \.offset) {
-                    index,
-                    entry in
+                ForEach(Array(result.entries.enumerated()), id: \.offset) { index, entry in
                     ScrollView {
                         VStack(alignment: .leading, spacing: 8) {
-                            ForEach(
-                                Array(entry.senses.enumerated()),
-                                id: \.offset
-                            ) { senseIndex, sense in
+                            ForEach(Array(entry.senses.enumerated()), id: \.offset) { senseIndex, sense in
                                 HStack(alignment: .top, spacing: 8) {
                                     // Sense index/classifier marker
-                                    var marker = sense.isClassifier ? "CL:": "\(senseIndex + 1)."
+                                    let marker = sense.isClassifier ? "CL:" : "\(senseIndex + 1)."
                                     Text(marker)
                                         .fontDesign(.monospaced)
                                         .font(.caption)
                                         .fontWeight(.medium)
                                         .foregroundStyle(.secondary)
 
-                                    // All glosses for this sense
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        ForEach(
-                                            Array(sense.glosses.enumerated()),
-                                            id: \.offset
-                                        ) { _, gloss in
-                                            GlossView(
-                                                gloss: gloss,
-                                                onLinkTap: onLinkTap
-                                            )
+                                    // Whole sense as one attributed Text with wrapping
+                                    SenseView(
+                                        sense: sense,
+                                        makeLinkURL: { headword in
+                                            linkURL(for: headword)
                                         }
-                                    }
-                                    .font(.subheadline)
+                                    )
                                 }
                                 .padding(.vertical, 2)
                             }
@@ -413,6 +432,48 @@ struct DictionaryPopover: View {
         .background(Color(.secondarySystemBackground))
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .shadow(radius: 8)
+        // Handle taps on AttributedString links
+        .environment(\.openURL, OpenURLAction { url in
+            if let headword = decodeLinkedHeadword(from: url) {
+                onLinkTap(headword)
+                return .handled
+            } else {
+                return .discarded
+            }
+        })
+    }
+
+    // MARK: - Link encoding/decoding
+    private func linkURL(for headword: LinkedHeadword) -> URL? {
+        let allowed = CharacterSet.urlQueryAllowed
+        let s = headword.simplified.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
+        let t = headword.traditional.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
+
+        return URL(string: "crdict://headword?s=\(s)&t=\(t)")
+    }
+
+    private func decodeLinkedHeadword(from url: URL) -> LinkedHeadword? {
+        guard url.scheme == "crdict" else { return nil }
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.host == "headword"
+        else { return nil }
+
+        var simplified: String?
+        var traditional: String?
+
+        components.queryItems?.forEach { item in
+            switch item.name {
+            case "s": simplified = item.value
+            case "t": traditional = item.value
+            default: break
+            }
+        }
+
+        guard let s = simplified, !s.isEmpty else { return nil }
+        let t = (traditional?.isEmpty ?? true) ? s : traditional!
+
+        // Adjust to your actual LinkedHeadword initializer
+        return LinkedHeadword(traditional: t, simplified: s)
     }
 }
 
