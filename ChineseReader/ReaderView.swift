@@ -255,24 +255,26 @@ struct GlossView: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 0) {
-            ForEach(Array(gloss.fragments.enumerated()), id: \.offset) { _, fragment in
+            ForEach(Array(gloss.fragments.enumerated()), id: \.offset) { fragmentIndex, fragment in
+                let spaceUnlessFirst = fragmentIndex > 0 ? " " : ""
                 switch fragment {
                 case .text(let text):
                     Text(text)
                 case .accentedPinyin(let syllables):
-                    Text("\(syllables.joined(separator: " "))")
+                    // Always space before pinyins (unless first fragment).
+                    Text(spaceUnlessFirst + "\(syllables.joined(separator: " "))")
                         .bold()
                         .foregroundStyle(.secondary)
                 case .link(let headword):
                     Button {
                         onLinkTap(headword)
                     } label: {
-                        HStack(spacing: 2) {
-                            Text(headword.simplified)
+                        HStack(spacing: 0) {
+                            // Always space before headwords (unless first fragment).
+                            Text(spaceUnlessFirst + headword.simplified)
                             
                             if headword.traditional != headword.simplified {
                                 Text("[\(headword.traditional)]")
-                                    .foregroundStyle(.secondary)
                             }
                         }
                     }
@@ -371,10 +373,11 @@ struct DictionaryPopover: View {
                             ForEach(
                                 Array(entry.senses.enumerated()),
                                 id: \.offset
-                            ) { defIndex, sense in
+                            ) { senseIndex, sense in
                                 HStack(alignment: .top, spacing: 8) {
-                                    // Sense index
-                                    Text("\(defIndex + 1).")
+                                    // Sense index/classifier marker
+                                    var marker = sense.isClassifier ? "CL:": "\(senseIndex + 1)."
+                                    Text(marker)
                                         .fontDesign(.monospaced)
                                         .font(.caption)
                                         .fontWeight(.medium)

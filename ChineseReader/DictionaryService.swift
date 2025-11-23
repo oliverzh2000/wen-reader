@@ -31,6 +31,7 @@ struct Entry {
 struct Sense {
     // Each gloss can be made up of plain text and clickable links.
     let glosses: [Gloss]
+    let isClassifier: Bool
 }
 
 /// A single gloss, made up of fragments.
@@ -160,14 +161,22 @@ final class CedictSqlService: DictionaryService {
 
     // MARK: - Parsing helpers
     private static func parseSenses(from raw: String) -> [Sense] {
-        // "sense1/sense2/sense3", each sense = "gloss1; gloss2"
+        // raw string = "sense1/sense2/sense3", where each sense = "gloss1; gloss2"
         let senseStrings = raw
             .split(separator: "/")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
 
         return senseStrings.map { senseStr in
-            let glossStrings = senseStr
+            // Detect and strip "CL:" prefix for classifier glosses.
+            var isClassifier = false
+            var strippedSenseStr = senseStr
+            if senseStr.hasPrefix("CL:") {
+                isClassifier = true
+                strippedSenseStr = String(senseStr.dropFirst(3)) // strip "CL:" prefix.
+            }
+            
+            let glossStrings = strippedSenseStr
                 .split(separator: ";")
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }
@@ -176,32 +185,30 @@ final class CedictSqlService: DictionaryService {
                 parseGloss(String(glossStr))
             }
 
-            return Sense(glosses: glosses)
+            return Sense(glosses: glosses, isClassifier: isClassifier)
         }
     }
     
     private static func parseGloss(_ raw: String) -> Gloss {
-        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else {
+        // Trim outer whitespace once
+        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.isEmpty {
             return Gloss(fragments: [])
         }
 
-        // Two cases in one regex:
-        //  1) ([\p{Han}]+)(?:\|([\p{Han}]+))?\[([A-Za-z0-9 ]+)\]
-        //        ^head1         ^head2?           ^pinyinWithHead
+
+        // 2) Regex:
+        //   a) ([\p{Han}]+)(?:\|([\p{Han}]+))?\[([A-Za-z0-9 ]+)\]
+        //        ^head1           ^head2?             ^pinyinWithHead
         //
-        //  2) \[([A-Za-z0-9 ]+)\]
+        //   b) \[([A-Za-z0-9 ]+)\]
         //           ^barePinyin
-        //
-        // So captures:
-        //  1: head1 (Han+)
-        //  2: head2 (Han+), optional
-        //  3: pinyin when a headword is present
-        //  4: pinyin when there is no headword (bare [fu4 qin5])
         let pattern = #"([\p{Han}]+)(?:\|([\p{Han}]+))?\[([A-Za-z0-9 ]+)\]|\[([A-Za-z0-9 ]+)\]"#
 
         guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
-            return Gloss(fragments: [.text(text)])
+            return Gloss(
+                fragments: [.text(text)]
+            )
         }
 
         var fragments: [GlossFragment] = []
@@ -213,20 +220,25 @@ final class CedictSqlService: DictionaryService {
             range: NSRange(location: 0, length: nsText.length)
         )
 
+        func appendNormalizedTextFragment(_ substring: Substring) {
+            let raw = String(substring)
+            let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !normalized.isEmpty {
+                fragments.append(.text(normalized))
+            }
+        }
+
         for match in matches {
             guard let range = Range(match.range, in: text) else {
                 continue
             }
 
-            // Text before this match → plain text fragment.
+            // Text before this match → plain text fragment (normalized)
             if currentLocation < range.lowerBound {
-                let prefix = String(text[currentLocation..<range.lowerBound])
-                if !prefix.isEmpty {
-                    fragments.append(.text(prefix))
-                }
+                appendNormalizedTextFragment(text[currentLocation..<range.lowerBound])
             }
 
-            // Case 1: headword + pinyin, e.g. 件[jian4] or 樁|桩[zhuang1]
+            // Case a): headword + pinyin, e.g. 件[jian4] or 樁|桩[zhuang1]
             if
                 let head1Range = Range(match.range(at: 1), in: text),
                 let pinyinWithHeadRange = Range(match.range(at: 3), in: text)
@@ -254,7 +266,7 @@ final class CedictSqlService: DictionaryService {
                     fragments.append(.accentedPinyin(accented))
                 }
             }
-            // Case 2: bare pinyin, e.g. [fu4 qin5]
+            // Case b): bare pinyin, e.g. [fu4 qin5]
             else if let barePinyinRange = Range(match.range(at: 4), in: text) {
                 let numberedPinyin = String(text[barePinyinRange])
                 let accented: [String] = numberedPinyin
@@ -269,15 +281,12 @@ final class CedictSqlService: DictionaryService {
             currentLocation = range.upperBound
         }
 
-        // Any remaining trailing text after the last match.
+        // Trailing text after the last match
         if currentLocation < text.endIndex {
-            let suffix = String(text[currentLocation..<text.endIndex])
-            if !suffix.isEmpty {
-                fragments.append(.text(suffix))
-            }
+            appendNormalizedTextFragment(text[currentLocation..<text.endIndex])
         }
 
-        // If nothing was recognized, fall back to plain text.
+        // Fallback: if nothing recognized, treat entire thing as text
         if fragments.isEmpty {
             fragments = [.text(text)]
         }
