@@ -45,13 +45,12 @@ enum GlossFragment: Hashable {
     case link(LinkedHeadword)
 }
 
-/// A cross-reference like 個|个[ge4].
+/// A cross-reference like '個|个'.
+/// Note that the pinyin fragment is parsed separately and will not form part of the clickable link.
 struct LinkedHeadword: Hashable {
     let traditional: String
     let simplified: String
-    let accentedPinyin: [String]
 }
-
 
 private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
@@ -187,14 +186,22 @@ final class CedictSqlService: DictionaryService {
             return Gloss(fragments: [])
         }
 
-        // Pattern for trad|simp[pinyin] (standard CC-CEDICT form).
-        // \p{Han} covers Chinese characters reasonably well.
-        let pattern = #"([\p{Han}]+)\|([\p{Han}]+)\[([A-Za-z0-9 ]+)\]"#
+        // Two cases in one regex:
+        //  1) ([\p{Han}]+)(?:\|([\p{Han}]+))?\[([A-Za-z0-9 ]+)\]
+        //        ^head1         ^head2?           ^pinyinWithHead
+        //
+        //  2) \[([A-Za-z0-9 ]+)\]
+        //           ^barePinyin
+        //
+        // So captures:
+        //  1: head1 (Han+)
+        //  2: head2 (Han+), optional
+        //  3: pinyin when a headword is present
+        //  4: pinyin when there is no headword (bare [fu4 qin5])
+        let pattern = #"([\p{Han}]+)(?:\|([\p{Han}]+))?\[([A-Za-z0-9 ]+)\]|\[([A-Za-z0-9 ]+)\]"#
 
         guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
-            // No link regex? Still try to pull out [pinyin].
-            let fragments = splitTextAndPinyin(text)
-            return Gloss(fragments: fragments)
+            return Gloss(fragments: [.text(text)])
         }
 
         var fragments: [GlossFragment] = []
@@ -207,86 +214,11 @@ final class CedictSqlService: DictionaryService {
         )
 
         for match in matches {
-            guard
-                let range = Range(match.range, in: text),
-                let tradRange = Range(match.range(at: 1), in: text),
-                let simpRange = Range(match.range(at: 2), in: text),
-                let pinyinRange = Range(match.range(at: 3), in: text)
-            else {
+            guard let range = Range(match.range, in: text) else {
                 continue
             }
 
-            // Text before this link → may contain [pinyin], so split it.
-            if currentLocation < range.lowerBound {
-                let prefix = String(text[currentLocation..<range.lowerBound])
-                if !prefix.isEmpty {
-                    fragments.append(contentsOf: splitTextAndPinyin(prefix))
-                }
-            }
-
-            // The matched headword → link fragment.
-            let trad = String(text[tradRange])
-            let simp = String(text[simpRange])
-
-            let accentedPinyin: [String] = text[pinyinRange]
-                .split(separator: " ")
-                .map { Self.numberedToAccentedPinyin(String($0)) }
-
-            let headword = LinkedHeadword(
-                traditional: trad,
-                simplified: simp,
-                accentedPinyin: accentedPinyin
-            )
-            fragments.append(.link(headword))
-
-            currentLocation = range.upperBound
-        }
-
-        // Any remaining text after the last link → may contain [pinyin].
-        if currentLocation < text.endIndex {
-            let suffix = String(text[currentLocation..<text.endIndex])
-            if !suffix.isEmpty {
-                fragments.append(contentsOf: splitTextAndPinyin(suffix))
-            }
-        }
-
-        // If we somehow didn’t find any fragments, try pure [pinyin] detection.
-        if fragments.isEmpty {
-            fragments = splitTextAndPinyin(text)
-        }
-
-        return Gloss(fragments: fragments)
-    }
-
-
-    private static func splitTextAndPinyin(_ text: String) -> [GlossFragment] {
-        guard !text.isEmpty else { return [] }
-
-        // Matches [fu4 qin5] with content captured inside the brackets.
-        let pattern = #"\[([A-Za-z0-9 ]+)\]"#
-
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
-            return [.text(text)]
-        }
-
-        var fragments: [GlossFragment] = []
-        var currentLocation = text.startIndex
-
-        let nsText = text as NSString
-        let matches = regex.matches(
-            in: text,
-            range: NSRange(location: 0, length: nsText.length)
-        )
-
-        for match in matches {
-            guard
-                let range = Range(match.range, in: text),
-                let pinyinRange = Range(match.range(at: 1), in: text)
-            else {
-                continue
-            }
-
-            // Text before this [pinyin] → plain text.
+            // Text before this match → plain text fragment.
             if currentLocation < range.lowerBound {
                 let prefix = String(text[currentLocation..<range.lowerBound])
                 if !prefix.isEmpty {
@@ -294,17 +226,50 @@ final class CedictSqlService: DictionaryService {
                 }
             }
 
-            // The pinyin inside [...] → accent-converted pinyin fragment.
-            let numbered = String(text[pinyinRange])
-            let accentedPinyin: [String] = numbered
-                .split(separator: " ")
-                .map { Self.numberedToAccentedPinyin(String($0)) }
-            fragments.append(.accentedPinyin(accentedPinyin))
+            // Case 1: headword + pinyin, e.g. 件[jian4] or 樁|桩[zhuang1]
+            if
+                let head1Range = Range(match.range(at: 1), in: text),
+                let pinyinWithHeadRange = Range(match.range(at: 3), in: text)
+            {
+                let head1 = String(text[head1Range])
+                var trad = head1
+                var simp = head1
+
+                if let head2Range = Range(match.range(at: 2), in: text) {
+                    let head2 = String(text[head2Range])
+                    // CC-CEDICT convention is trad|simp
+                    trad = head1
+                    simp = head2
+                }
+
+                let headword = LinkedHeadword(traditional: trad, simplified: simp)
+                fragments.append(.link(headword))
+
+                let numberedPinyin = String(text[pinyinWithHeadRange])
+                let accented: [String] = numberedPinyin
+                    .split(separator: " ")
+                    .map { Self.numberedToAccentedPinyin(String($0)) }
+
+                if !accented.isEmpty {
+                    fragments.append(.accentedPinyin(accented))
+                }
+            }
+            // Case 2: bare pinyin, e.g. [fu4 qin5]
+            else if let barePinyinRange = Range(match.range(at: 4), in: text) {
+                let numberedPinyin = String(text[barePinyinRange])
+                let accented: [String] = numberedPinyin
+                    .split(separator: " ")
+                    .map { Self.numberedToAccentedPinyin(String($0)) }
+
+                if !accented.isEmpty {
+                    fragments.append(.accentedPinyin(accented))
+                }
+            }
 
             currentLocation = range.upperBound
         }
 
-        // Any trailing text after the last [pinyin]
+        // Any remaining trailing text after the last match.
         if currentLocation < text.endIndex {
             let suffix = String(text[currentLocation..<text.endIndex])
             if !suffix.isEmpty {
@@ -312,13 +277,13 @@ final class CedictSqlService: DictionaryService {
             }
         }
 
+        // If nothing was recognized, fall back to plain text.
         if fragments.isEmpty {
             fragments = [.text(text)]
         }
 
-        return fragments
+        return Gloss(fragments: fragments)
     }
-
 
     // MARK: - Pinyin conversion
     private static func numberedToAccentedPinyin(_ numbered: String) -> String {

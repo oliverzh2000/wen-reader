@@ -274,10 +274,6 @@ struct GlossView: View {
                                 Text("[\(headword.traditional)]")
                                     .foregroundStyle(.secondary)
                             }
-                            
-                            Text("\(headword.accentedPinyin.joined(separator: " "))")
-                                .bold()
-                                .foregroundStyle(.secondary)
                         }
                     }
                     .buttonStyle(.plain)
