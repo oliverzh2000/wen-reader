@@ -397,18 +397,18 @@ struct DictionaryPopover: View {
             TabView(selection: $selectedSenseIndex) {
                 ForEach(Array(result.entries.enumerated()), id: \.offset) { index, entry in
                     ScrollView {
-                        VStack(alignment: .leading, spacing: 8) {
+                        Grid(alignment: .leading, verticalSpacing: 8) {
                             ForEach(Array(entry.senses.enumerated()), id: \.offset) { senseIndex, sense in
-                                HStack(alignment: .top, spacing: 8) {
-                                    // Sense index/classifier marker
-                                    let marker = sense.isClassifier ? "CL:" : "\(senseIndex + 1)."
+                                let marker = sense.isClassifier ? "CL:" : "\(senseIndex + 1)."
+
+                                GridRow {
                                     Text(marker)
-                                        .fontDesign(.monospaced)
                                         .font(.caption)
                                         .fontWeight(.medium)
                                         .foregroundStyle(.secondary)
+                                        // This col will auto-size to fit the widest marker
+                                        .gridColumnAlignment(.trailing)
 
-                                    // Whole sense as one attributed Text with wrapping
                                     SenseView(
                                         sense: sense,
                                         makeLinkURL: { headword in
@@ -416,9 +416,7 @@ struct DictionaryPopover: View {
                                         }
                                     )
                                 }
-                                .padding(.vertical, 2)
                             }
-                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.top, 4)
