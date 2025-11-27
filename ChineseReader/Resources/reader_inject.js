@@ -309,6 +309,104 @@
      };
    }
 
+   // --- NEW: helper to resegment an existing word span ------------------------
+   function resegmentWordSpan(span, pattern) {
+     if (!span || !Array.isArray(pattern) || pattern.length === 0) {
+       return null;
+     }
+
+     // Normalize pattern to positive integers
+     const splits = pattern
+       .map((n) => Number(n))
+       .filter((n) => Number.isFinite(n) && n > 0);
+
+     if (splits.length === 0) return null;
+
+     const block = span.closest('[data-cr-segmented="1"]');
+     if (!block || !block.__crSentenceTokens) return null;
+
+     const sentenceId = Number(span.dataset.crSentenceId || "0");
+     const tokenIndex = Number(span.dataset.crTokenIndex || "0");
+
+     const allSentenceTokens = block.__crSentenceTokens || [];
+     const sentenceTokens = allSentenceTokens[sentenceId];
+     if (!sentenceTokens) return null;
+
+     const text = span.textContent || "";
+     const totalLen = splits.reduce((a, b) => a + b, 0);
+     if (totalLen !== text.length) {
+       console.warn("[CR] resegmentWordSpan: pattern length mismatch", {
+         text,
+         splits,
+         totalLen
+       });
+       return null;
+     }
+
+     // Split the text by the given char-length pattern
+     const parts = [];
+     let offset = 0;
+     for (const len of splits) {
+       parts.push(text.substr(offset, len));
+       offset += len;
+     }
+
+     // Update logical tokens: replace [tokenIndex] with the parts
+     sentenceTokens.splice(tokenIndex, 1, ...parts);
+     allSentenceTokens[sentenceId] = sentenceTokens;
+
+     const delta = parts.length - 1; // net change in token count
+
+     // Update token indices for *existing* word spans AFTER this token,
+     // before we replace the DOM span.
+     if (delta !== 0) {
+       const selector =
+         'span[data-cr-word="1"][data-cr-sentence-id="' + sentenceId + '"]';
+       const spansInSentence = block.querySelectorAll(selector);
+       spansInSentence.forEach((el) => {
+         if (el === span) return;
+         const oldIdx = Number(el.dataset.crTokenIndex || "0");
+         if (oldIdx > tokenIndex) {
+           el.dataset.crTokenIndex = String(oldIdx + delta);
+         }
+       });
+     }
+
+     // Build replacement spans
+     const parent = span.parentNode;
+     if (!parent) return null;
+
+     // Preserve all classes except the highlight itself, so we keep "cr-word"
+     const baseClassNames = Array.from(span.classList).filter(
+       (c) => c !== "cr-word-highlight"
+     );
+     const baseClass = baseClassNames.join(" ") || "cr-word";
+
+     const newSpans = [];
+     parts.forEach((p, idx) => {
+       const s = document.createElement("span");
+       s.textContent = p;
+       s.className = baseClass;
+       s.dataset.crWord = "1";
+       s.dataset.crSentenceId = String(sentenceId);
+       s.dataset.crTokenIndex = String(tokenIndex + idx);
+       newSpans.push(s);
+     });
+
+     // Insert new spans before removing the old one
+     newSpans.forEach((s) => parent.insertBefore(s, span));
+     parent.removeChild(span);
+
+     // Pick which sub-span to highlight; for now, the first part.
+     const highlighted = newSpans[0] || null;
+     if (!highlighted) return null;
+
+     highlighted.classList.add("cr-word-highlight");
+     return highlighted;
+   }
+
+   // ---------------------------------------------------------------------------
+
    window.CR = {
      __ready: true,
      _lastWordEl: null,
@@ -320,20 +418,20 @@
          addClass("cr-nonselectable");
        }
      },
-       
-      clearHighlight: function () {
-           const last = window.CR._lastWordEl;
-           if (last) {
-             last.classList.remove("cr-word-highlight");
-             window.CR._lastWordEl = null;
-           }
-       },
+
+     clearHighlight: function () {
+       const last = window.CR._lastWordEl;
+       if (last) {
+         last.classList.remove("cr-word-highlight");
+         window.CR._lastWordEl = null;
+       }
+     },
 
      // Main entry from Swift: highlight word under (x, y) and return info
      highlightWordAtPoint: function (x, y) {
-         // Always clear existing previous highlight
-         window.CR.clearHighlight();
-         
+       // Always clear existing previous highlight
+       window.CR.clearHighlight();
+
        x = Number(x);
        y = Number(y);
 
@@ -351,6 +449,19 @@
 
        return getWordInfoForSpan(span);
      },
+
+     // Resegment the currently highlighted word using a char-length pattern
+     // pattern: e.g. [2, 2, 3] for "中华人民共和国"
+     resegmentLastWord: function (pattern) {
+       const span = window.CR._lastWordEl;
+       if (!span) return null;
+
+       const newSpan = resegmentWordSpan(span, pattern);
+       if (!newSpan) return null;
+
+       window.CR._lastWordEl = newSpan;
+       return getWordInfoForSpan(newSpan);
+     }
    };
 
    // Optionally: kick off init *immediately* when this file loads,

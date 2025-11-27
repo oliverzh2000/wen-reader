@@ -425,5 +425,90 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
             }
         }
     }
+    
+    /// Ask JS to resegment the currently highlighted word using a pattern of char lengths.
+    /// Calls completion with a new WordHit (or nil on failure).
+    func resegmentCurrentHighlight(
+        pattern: [Int],
+        completion: @escaping (WordHit?) -> Void
+    ) {
+        guard let root = navigatorVC?.view else {
+            completion(nil)
+            return
+        }
 
+        // JSON-encode the pattern so we can pass it to JS
+        guard let patternData = try? JSONSerialization.data(withJSONObject: pattern),
+              let patternJSON = String(data: patternData, encoding: .utf8) else {
+            completion(nil)
+            return
+        }
+
+        for webView in findDescendantWKWebViews() {
+            // We don't know which webView holds the highlight, but only the one
+            // with window.CR._lastWordEl will actually do work. Others return null.
+            let js = """
+                (function() {
+                  try {
+                    if (window.CR && window.CR.resegmentLastWord) {
+                      return window.CR.resegmentLastWord(\(patternJSON));
+                    }
+                  } catch (e) {
+                    console.error("CR.resegmentLastWord error", e);
+                  }
+                  return null;
+                })();
+                """
+
+            webView.evaluateJavaScript(js) { result, error in
+                if let error = error {
+                    print("JS error in resegmentLastWord: \(error)")
+                    completion(nil)
+                    return
+                }
+
+                guard
+                    let dict = result as? [String: Any],
+                    let sentenceTokens = dict["sentenceTokens"] as? [String],
+                    let wordIndexNumber = dict["wordIndex"] as? NSNumber
+                else {
+                    // This webview had nothing to resegment; try next one.
+                    // Only call completion if we've tried all; to keep it simple, just
+                    // call completion on first hit and ignore others.
+                    return
+                }
+
+                let wordIndex = wordIndexNumber.intValue
+
+                var rects: [CGRect] = []
+                if let rectArray = dict["rects"] as? [[String: Any]] {
+                    for rectDict in rectArray {
+                        guard
+                            let x = (rectDict["x"] as? NSNumber)?.doubleValue,
+                            let y = (rectDict["y"] as? NSNumber)?.doubleValue,
+                            let width = (rectDict["width"] as? NSNumber)?.doubleValue,
+                            let height = (rectDict["height"] as? NSNumber)?.doubleValue
+                        else { continue }
+
+                        rects.append(CGRect(x: x, y: y, width: width, height: height))
+                    }
+                }
+
+                let hit = WordHit(
+                    sentenceTokens: sentenceTokens,
+                    wordIndex: wordIndex,
+                    rectsInWebView: rects,
+                    hitPoint: self.currentWordHit?.hitPoint ?? .zero
+                )
+
+                self.currentWordHit = hit
+                self.onWordHit?(hit)
+                completion(hit)
+            }
+
+            // We let the first webView that returns a non-nil dict win.
+            // No `break` here in case you want to be extra safe, but you can add one
+            // once you’re confident only one webView ever responds.
+        }
+    }
 }

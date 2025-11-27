@@ -11,6 +11,11 @@ import SQLite3
 protocol DictionaryService {
     /// Return the full dictionary entry (all senses) for a word, if present.
     func lookup(_ word: String) async -> DictionaryResult?
+    
+    /// Return a greedy split pattern in *character counts*.
+    /// e.g. "中华人民共和国" -> [2, 2, 3] if those pieces are in CEDICT;
+    /// falls back to [1, 1, 1, ...] if nothing matches.
+    func greedySplitPattern(for word: String) async -> [Int]
 }
 
 // All dictionary entries returned for a lookup.
@@ -53,14 +58,17 @@ struct LinkedHeadword: Hashable {
     let simplified: String
 }
 
-private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+private let SQLITE_TRANSIENT = unsafeBitCast(
+    -1,
+    to: sqlite3_destructor_type.self
+)
 
 final class CedictSqlService: DictionaryService {
     static let shared = CedictSqlService()
     private var db: OpaquePointer?
 
     // Adjust to match how you bundle the DB
-    private let dbFileName = "cedict"      // cedict.sqlite -> "cedict"
+    private let dbFileName = "cedict"  // cedict.sqlite -> "cedict"
     private let dbFileExtension = "sqlite"
 
     private init() {
@@ -83,10 +91,10 @@ final class CedictSqlService: DictionaryService {
         guard let db else { return nil }
 
         let sql = """
-        SELECT trad, simp, pinyin, senses_raw
-        FROM cedict_entries
-        WHERE trad = ?1 OR simp = ?1;
-        """
+            SELECT trad, simp, pinyin, senses_raw
+            FROM cedict_entries
+            WHERE trad = ?1 OR simp = ?1;
+            """
 
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
@@ -118,7 +126,8 @@ final class CedictSqlService: DictionaryService {
             let pinyinRaw = String(cString: pinyinC)
             let sensesRaw = String(cString: sensesC)
 
-            let accentedPinyin: [String] = pinyinRaw
+            let accentedPinyin: [String] =
+                pinyinRaw
                 .split(separator: " ")
                 .map { Self.numberedToAccentedPinyin(String($0)) }
 
@@ -138,11 +147,47 @@ final class CedictSqlService: DictionaryService {
         return DictionaryResult(entries: entries)
     }
 
+    func greedySplitPattern(for word: String) async -> [Int] {
+        guard !word.isEmpty else { return [] }
+
+        let chars = Array(word)
+        var result: [Int] = []
+        var i = 0
+
+        while i < chars.count {
+            var bestLen = 1  // fallback to single char
+            var maxLen = chars.count - i
+
+            // Optional: cap to avoid absurd substring lengths
+            if maxLen > 8 { maxLen = 8 }
+
+            var len = maxLen
+            while len > 1 {
+                let candidate = String(chars[i..<i + len])
+                if await lookup(candidate) != nil {
+                    bestLen = len
+                    break
+                }
+                len -= 1
+            }
+
+            result.append(bestLen)
+            i += bestLen
+        }
+
+        return result
+    }
+
     // MARK: - DB open
     private func openDatabaseIfNeeded() {
         guard db == nil else { return }
 
-        guard let url = Bundle.main.url(forResource: dbFileName, withExtension: dbFileExtension) else {
+        guard
+            let url = Bundle.main.url(
+                forResource: dbFileName,
+                withExtension: dbFileExtension
+            )
+        else {
             print("CEDICTWithLLM: could not find cedict DB in bundle")
             return
         }
@@ -162,7 +207,8 @@ final class CedictSqlService: DictionaryService {
     // MARK: - Parsing helpers
     private static func parseSenses(from raw: String) -> [Sense] {
         // raw string = "sense1/sense2/sense3", where each sense = "gloss1; gloss2"
-        let senseStrings = raw
+        let senseStrings =
+            raw
             .split(separator: "/")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
@@ -173,10 +219,11 @@ final class CedictSqlService: DictionaryService {
             var strippedSenseStr = senseStr
             if senseStr.hasPrefix("CL:") {
                 isClassifier = true
-                strippedSenseStr = String(senseStr.dropFirst(3)) // strip "CL:" prefix.
+                strippedSenseStr = String(senseStr.dropFirst(3))  // strip "CL:" prefix.
             }
-            
-            let glossStrings = strippedSenseStr
+
+            let glossStrings =
+                strippedSenseStr
                 .split(separator: ";")
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }
@@ -188,7 +235,7 @@ final class CedictSqlService: DictionaryService {
             return Sense(glosses: glosses, isClassifier: isClassifier)
         }
     }
-    
+
     private static func parseGloss(_ raw: String) -> Gloss {
         // Trim outer whitespace once
         var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -196,16 +243,18 @@ final class CedictSqlService: DictionaryService {
             return Gloss(fragments: [])
         }
 
-
         // 2) Regex:
         //   a) ([\p{Han}]+)(?:\|([\p{Han}]+))?\[([A-Za-z0-9 ]+)\]
         //        ^head1           ^head2?             ^pinyinWithHead
         //
         //   b) \[([A-Za-z0-9 ]+)\]
         //           ^barePinyin
-        let pattern = #"([\p{Han}]+)(?:\|([\p{Han}]+))?\[([A-Za-z0-9 ]+)\]|\[([A-Za-z0-9 ]+)\]"#
+        let pattern =
+            #"([\p{Han}]+)(?:\|([\p{Han}]+))?\[([A-Za-z0-9 ]+)\]|\[([A-Za-z0-9 ]+)\]"#
 
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+        guard
+            let regex = try? NSRegularExpression(pattern: pattern, options: [])
+        else {
             return Gloss(
                 fragments: [.text(text)]
             )
@@ -235,12 +284,13 @@ final class CedictSqlService: DictionaryService {
 
             // Text before this match → plain text fragment (normalized)
             if currentLocation < range.lowerBound {
-                appendNormalizedTextFragment(text[currentLocation..<range.lowerBound])
+                appendNormalizedTextFragment(
+                    text[currentLocation..<range.lowerBound]
+                )
             }
 
             // Case a): headword + pinyin, e.g. 件[jian4] or 樁|桩[zhuang1]
-            if
-                let head1Range = Range(match.range(at: 1), in: text),
+            if let head1Range = Range(match.range(at: 1), in: text),
                 let pinyinWithHeadRange = Range(match.range(at: 3), in: text)
             {
                 let head1 = String(text[head1Range])
@@ -254,11 +304,15 @@ final class CedictSqlService: DictionaryService {
                     simp = head2
                 }
 
-                let headword = LinkedHeadword(traditional: trad, simplified: simp)
+                let headword = LinkedHeadword(
+                    traditional: trad,
+                    simplified: simp
+                )
                 fragments.append(.link(headword))
 
                 let numberedPinyin = String(text[pinyinWithHeadRange])
-                let accented: [String] = numberedPinyin
+                let accented: [String] =
+                    numberedPinyin
                     .split(separator: " ")
                     .map { Self.numberedToAccentedPinyin(String($0)) }
 
@@ -269,7 +323,8 @@ final class CedictSqlService: DictionaryService {
             // Case b): bare pinyin, e.g. [fu4 qin5]
             else if let barePinyinRange = Range(match.range(at: 4), in: text) {
                 let numberedPinyin = String(text[barePinyinRange])
-                let accented: [String] = numberedPinyin
+                let accented: [String] =
+                    numberedPinyin
                     .split(separator: " ")
                     .map { Self.numberedToAccentedPinyin(String($0)) }
 
@@ -298,59 +353,64 @@ final class CedictSqlService: DictionaryService {
     private static func numberedToAccentedPinyin(_ numbered: String) -> String {
         // 1. Extract tone number (1–5)
         guard let toneChar = numbered.last,
-              let tone = Int(String(toneChar)),
-              tone >= 1 && tone <= 5 else {
+            let tone = Int(String(toneChar)),
+            tone >= 1 && tone <= 5
+        else {
             return numbered  // already accented or malformed
         }
-        
+
         let base = String(numbered.dropLast())
-        
+
         // 2. Convert u:, v → ü normalization
-        let normalized = base
+        let normalized =
+            base
             .replacingOccurrences(of: "u:", with: "ü")
             .replacingOccurrences(of: "v", with: "ü")
-        
+
         // 3. Vowel priority list for tone placement
         let vowels = ["a", "e", "o", "u", "i", "ü"]
-        
+
         // 4. Which vowel gets the mark?
         var targetIndex: String.Index? = nil
-        
+
         // Rule: a → e → ou → last vowel
         if let i = normalized.firstIndex(of: "a") {
             targetIndex = i
         } else if let i = normalized.firstIndex(of: "e") {
             targetIndex = i
         } else if normalized.contains("ou"),
-                  let i = normalized.firstIndex(of: "o") {
+            let i = normalized.firstIndex(of: "o")
+        {
             targetIndex = i
         } else {
             // last vowel
-            targetIndex = normalized.lastIndex(where: { vowels.contains(String($0)) })
+            targetIndex = normalized.lastIndex(where: {
+                vowels.contains(String($0))
+            })
         }
-        
+
         guard let idx = targetIndex else {
-            return normalized // no vowel? return unchanged
+            return normalized  // no vowel? return unchanged
         }
-        
+
         let vowel = normalized[idx]
-        
+
         // 5. Mapping vowel + tone → accented vowel
         let toneMarks: [Character: [Character]] = [
-            "a": ["ā","á","ǎ","à","a"],
-            "e": ["ē","é","ě","è","e"],
-            "i": ["ī","í","ǐ","ì","i"],
-            "o": ["ō","ó","ǒ","ò","o"],
-            "u": ["ū","ú","ǔ","ù","u"],
-            "ü": ["ǖ","ǘ","ǚ","ǜ","ü"]
+            "a": ["ā", "á", "ǎ", "à", "a"],
+            "e": ["ē", "é", "ě", "è", "e"],
+            "i": ["ī", "í", "ǐ", "ì", "i"],
+            "o": ["ō", "ó", "ǒ", "ò", "o"],
+            "u": ["ū", "ú", "ǔ", "ù", "u"],
+            "ü": ["ǖ", "ǘ", "ǚ", "ǜ", "ü"],
         ]
-        
+
         let accented = toneMarks[vowel]?[tone - 1] ?? vowel
-        
+
         // 6. Replace vowel with accented vowel
         var result = normalized
         result.replaceSubrange(idx...idx, with: String(accented))
-        
+
         return result
     }
 }

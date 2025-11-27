@@ -53,24 +53,60 @@ final class ReadiumEngine: ObservableObject {
     private var dictStack: [DictionaryResult] = []
     private let dictionaryService: DictionaryService = CedictSqlService.shared
 
-    // New lookup entry point.
     func updateDictionaryResult(for word: String?) {
-        Task {
-            if let word {
-                if let result = await dictionaryService.lookup(word) {
-                    dictStack.removeAll()
-                    dictStack.append(result)
-                    currentDictResult = result
-                } else {
-                    // TODO: the logic for removing highlights and syncing to ReaderInteractionManager's currentWordHit is very complex and brittle!
-                    dictStack.removeAll()
-                    currentDictResult = nil
+            updateDictionaryResult(for: word, allowResegment: true)
+        }
+
+        private func updateDictionaryResult(
+            for word: String?,
+            allowResegment: Bool
+        ) {
+            Task { [weak self] in
+                guard let self else { return }
+
+                guard let word else {
+                    self.closeDictionaryAndClearHighlight()
+                    return
                 }
-            } else {
-                closeDictionaryAndClearHighlight()
+
+                if let result = await self.dictionaryService.lookup(word) {
+                    self.dictStack.removeAll()
+                    self.dictStack.append(result)
+                    self.currentDictResult = result
+                    return
+                }
+
+                // No direct hit in CEDICT
+                guard allowResegment else {
+                    self.dictStack.removeAll()
+                    self.currentDictResult = nil
+                    return
+                }
+
+                // Ask CEDICT to compute a greedy split pattern
+                let pattern = await self.dictionaryService.greedySplitPattern(for: word)
+                guard !pattern.isEmpty else {
+                    self.dictStack.removeAll()
+                    self.currentDictResult = nil
+                    return
+                }
+
+                // Ask JS to split the DOM span according to `pattern`
+                self.interactionManager.resegmentCurrentHighlight(pattern: pattern) { [weak self] newHit in
+                    guard let self, let newHit else {
+                        self?.dictStack.removeAll()
+                        self?.currentDictResult = nil
+                        return
+                    }
+
+                    // New hit corresponds to one of the subwords
+                    // (JS will decide which one is highlighted; here we just look it up).
+                    let newWord = newHit.word
+                    self.currentWordHit = newHit
+                    self.updateDictionaryResult(for: newWord, allowResegment: false)
+                }
             }
         }
-    }
 
     func closeDictionaryAndClearHighlight() {
         dictStack.removeAll()
