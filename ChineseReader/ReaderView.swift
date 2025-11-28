@@ -74,7 +74,6 @@ struct ReaderView: View {
                         engine.currentWordHit?.hitPoint.y ?? screenHeight / 2
                     let alignment: Alignment =
                         (hitY > screenHeight / 2) ? .top : .bottom
-                    let edge: Edge = (alignment == .top) ? .top : .bottom
 
                     // Popover pinned to top or bottom
                     DictionaryPopover(
@@ -89,7 +88,8 @@ struct ReaderView: View {
                             engine.pushDictionary(for: headword.simplified)
                         }
                     )
-                    .padding()
+                    .padding([.leading, .trailing, .bottom])
+                    .ignoresSafeArea(edges: .bottom)
                     .frame(maxHeight: 300)
                     .frame(
                         maxWidth: .infinity,
@@ -98,12 +98,15 @@ struct ReaderView: View {
                     )
                     .transition(
                         .opacity
-                            .combined(with: .move(edge: edge))
-                    )
+                        )
                     .zIndex(1)
                 }
             }
         }
+        .animation(
+            .spring(response: 0.25, dampingFraction: 1.0),
+            value: engine.currentDictResult != nil
+        )
         .navigationTitle(book.displayName)
         .navigationBarTitleDisplayMode(.inline)
         .readerChrome(
@@ -325,6 +328,9 @@ struct DictionaryPopover: View {
     let onLinkTap: (LinkedHeadword) -> Void
 
     @State private var selectedSenseIndex: Int
+    
+    // For animations to track.
+    var contentKey = "constant_placeholder_no_effect"
 
     init(
         result: DictionaryResult,
@@ -397,24 +403,72 @@ struct DictionaryPopover: View {
             TabView(selection: $selectedSenseIndex) {
                 ForEach(Array(result.entries.enumerated()), id: \.offset) { index, entry in
                     ScrollView {
-                        Grid(alignment: .leading, verticalSpacing: 8) {
-                            ForEach(Array(entry.senses.enumerated()), id: \.offset) { senseIndex, sense in
-                                let marker = sense.isClassifier ? "CL:" : "\(senseIndex + 1)."
+                        // Preprocess senses so we can:
+                        // - skip numbering classifiers
+                        // - decide if a CL is attached (indented) or global (not indented)
+                        let rows: [(id: Int, sense: Sense, marker: String, isAttachedClassifier: Bool)] = {
+                            var result: [(Int, Sense, String, Bool)] = []
+                            var runningNumber = 0
+                            let senses = entry.senses
 
+                            for (i, sense) in senses.enumerated() {
+                                let isLast = i == senses.count - 1
+
+                                if sense.isClassifier {
+                                    if isLast {
+                                        // Global classifier for the whole word → show "CL:" in marker column, no indent.
+                                        result.append((i, sense, "CL:", false))
+                                    } else {
+                                        // Attached classifier for the *previous* numbered sense
+                                        // → empty marker (so numbering doesn't jump), and indent in content column.
+                                        result.append((i, sense, "", true))
+                                    }
+                                } else {
+                                    // Normal sense gets a number
+                                    runningNumber += 1
+                                    result.append((i, sense, "\(runningNumber).", false))
+                                }
+                            }
+
+                            return result
+                        }()
+
+                        Grid(alignment: .leadingFirstTextBaseline, verticalSpacing: 8) {
+                            ForEach(rows, id: \.id) { row in
                                 GridRow {
-                                    Text(marker)
+                                    // Marker column: numbers or "CL:" for global classifier.
+                                    Text(row.marker)
                                         .font(.caption)
                                         .fontWeight(.medium)
                                         .foregroundStyle(.secondary)
-                                        // This col will auto-size to fit the widest marker
                                         .gridColumnAlignment(.trailing)
 
-                                    SenseView(
-                                        sense: sense,
-                                        makeLinkURL: { headword in
-                                            linkURL(for: headword)
+                                    // Content column
+                                    if row.isAttachedClassifier {
+                                        // Attached CL → indent by keeping marker col empty and
+                                        // putting "CL:" + SenseView in an HStack.
+                                        HStack(alignment: .firstTextBaseline, spacing: 4) {
+                                            Text("CL:")
+                                                .font(.caption)
+                                                .fontWeight(.medium)
+                                                .foregroundStyle(.secondary)
+
+                                            SenseView(
+                                                sense: row.sense,
+                                                makeLinkURL: { headword in
+                                                    linkURL(for: headword)
+                                                }
+                                            )
                                         }
-                                    )
+                                    } else {
+                                        // Normal sense or global CL
+                                        SenseView(
+                                            sense: row.sense,
+                                            makeLinkURL: { headword in
+                                                linkURL(for: headword)
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -426,10 +480,14 @@ struct DictionaryPopover: View {
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
         }
+        .animation(
+            .easeInOut(duration: 0.18),
+            value: contentKey
+        )
         .padding()
         .background(Color(.secondarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .shadow(radius: 8)
+        .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
+        .shadow(radius: 32)
         // Handle taps on AttributedString links
         .environment(\.openURL, OpenURLAction { url in
             if let headword = decodeLinkedHeadword(from: url) {
