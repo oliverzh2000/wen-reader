@@ -11,6 +11,7 @@ import ReadiumNavigator
 import ReadiumShared
 import ReadiumStreamer
 import SwiftUI
+import WebKit
 
 typealias RLink = ReadiumShared.Link
 
@@ -343,5 +344,48 @@ extension ReadiumEngine: EPUBNavigatorDelegate {
                 return false
             }
         )
+    }
+}
+
+/// This is to fix the stubborn top and bottom margins in the EPUB navigator
+extension ReadiumEngine {
+    func tightenVerticalMargins() {
+        guard let root = self.navigatorVC?.view else { return }
+        removeVerticalInsets(in: root)
+        root.layoutIfNeeded()   // let Auto Layout apply updated constants
+    }
+
+    private func removeVerticalInsets(in view: UIView) {
+        // Look for each spread view
+        let typeName = String(describing: type(of: view))
+        if typeName == "PaginationView" || typeName == "EPUBReflowableSpreadView" {
+            fixSpreadConstraints(view)
+        }
+
+        view.subviews.forEach(removeVerticalInsets)
+    }
+
+    private func fixSpreadConstraints(_ spreadView: UIView) {
+        // First find the 'WebView' child.
+        guard let webView = spreadView.subviews.first(where: {
+            String(describing: type(of: $0)) == "WebView"
+        }) else { return }
+
+        // Adjust constraints on the spread itself that involve webView's top/bottom.
+        for constraint in spreadView.constraints {
+            let firstIsWeb = constraint.firstItem as AnyObject === webView
+            let secondIsWeb = constraint.secondItem as AnyObject === webView
+
+            if firstIsWeb || secondIsWeb {
+                switch (constraint.firstAttribute, constraint.secondAttribute) {
+                case (.top, _), (_, .top),
+                     (.bottom, _), (_, .bottom):
+                    // Kill the 62pt constants
+                    constraint.constant = 0
+                default:
+                    break
+                }
+            }
+        }
     }
 }

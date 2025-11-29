@@ -16,22 +16,14 @@ private struct ReaderSurface: View {
 
     var body: some View {
         Group {
-            if engine.isOpening {
-                ProgressView("Opening book…")
-            } else if let error = engine.openError {
-                VStack(spacing: 12) {
-                    Text("Failed to open").font(.headline)
-                    Text(error.localizedDescription).font(.footnote)
-                        .multilineTextAlignment(.center)
-                }
-                .padding()
-            } else if let nav = engine.navigatorVC {
+            if engine.navigatorVC != nil {
                 // Readium's EPUB rendering window.
-                NavigatorHost(navigatorVC: nav)
-                    // TODO: Fix the source of the extra top/bottom margins.
-                    // From investigation using Safari inspect element, seems that
-                    // Readium is adding it's own stubborn margin between html element and the edge of the NavigatorHost.
-                    .ignoresSafeArea(edges: .bottom)
+                NavigatorHost(
+                    navigatorVC: engine.navigatorVC!,
+                    onLayout: {
+                        engine.tightenVerticalMargins()
+                    }
+                )
                     .onAppear {
                         engine.apply(settingsStore.settings, systemColorScheme)
                     }
@@ -41,6 +33,15 @@ private struct ReaderSurface: View {
                     .onChange(of: settingsStore.settings) { _, newSettings in
                         engine.apply(newSettings, systemColorScheme)
                     }
+            } else if let error = engine.openError {
+                VStack(spacing: 12) {
+                    Text("Failed to open").font(.headline)
+                    Text(error.localizedDescription).font(.footnote)
+                        .multilineTextAlignment(.center)
+                }
+                .padding()
+            } else if engine.isOpening {
+                // Very brief - no need to show anything like "Opening...".
             } else {
                 Text("No content")
             }
