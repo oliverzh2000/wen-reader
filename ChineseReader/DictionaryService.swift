@@ -11,7 +11,10 @@ import SQLite3
 protocol DictionaryService {
     /// Return the full dictionary entry (all senses) for a word, if present.
     func lookup(_ word: String) async -> DictionaryResult?
-    
+
+    /// Return true if `word` exists in CEDICT (as trad or simp), false otherwise.
+    func contains(_ word: String) async -> Bool
+
     /// Return a greedy split pattern in *character counts*.
     /// e.g. "中华人民共和国" -> [2, 2, 3] if those pieces are in CEDICT;
     /// falls back to [1, 1, 1, ...] if nothing matches.
@@ -97,20 +100,10 @@ final class CedictSqlService: DictionaryService {
             """
 
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
-            let msg = String(cString: sqlite3_errmsg(db))
-            print("CEDICTWithLLM: prepare failed: \(msg)")
-            return nil
-        }
+        guard prepareAndBind(sql, word: word, stmt: &stmt) else { return nil }
         defer { sqlite3_finalize(stmt) }
 
-        // Bind the same word to both trad and simp via ?1
-        (word as NSString).utf8String.map {
-            sqlite3_bind_text(stmt, 1, $0, -1, SQLITE_TRANSIENT)
-        }
-
         var entries: [Entry] = []
-
         while sqlite3_step(stmt) == SQLITE_ROW {
             guard
                 let tradC = sqlite3_column_text(stmt, 0),
@@ -145,6 +138,57 @@ final class CedictSqlService: DictionaryService {
 
         guard !entries.isEmpty else { return nil }
         return DictionaryResult(entries: entries)
+    }
+
+    func contains(_ word: String) async -> Bool {
+        openDatabaseIfNeeded()
+        guard let db else { return false }
+
+        let sql = """
+            SELECT 1
+            FROM cedict_entries
+            WHERE trad = ?1 OR simp = ?1
+            LIMIT 1;
+            """
+
+        var stmt: OpaquePointer?
+        guard prepareAndBind(sql, word: word, stmt: &stmt) else { return false }
+        defer { sqlite3_finalize(stmt) }
+
+        // If we get a row, the word exists.
+        let stepResult = sqlite3_step(stmt)
+        switch stepResult {
+        case SQLITE_ROW:
+            return true
+        case SQLITE_DONE:
+            return false
+        default:
+            let msg = String(cString: sqlite3_errmsg(db))
+            print("CEDICT: contains() step failed: \(msg)")
+            return false
+        }
+    }
+
+    /// Prepare a statement and bind `word` to parameter 1 (?1).
+    @discardableResult
+    private func prepareAndBind(
+        _ sql: String,
+        word: String,
+        stmt: inout OpaquePointer?
+    ) -> Bool {
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            print("CEDICT: prepare failed: \(msg)")
+            return false
+        }
+
+        guard let cString = (word as NSString).utf8String else {
+            print("CEDICT: failed to get UTF-8 for word: \(word)")
+            return false
+        }
+
+        sqlite3_bind_text(stmt, 1, cString, -1, SQLITE_TRANSIENT)
+        return true
     }
 
     func greedySplitPattern(for word: String) async -> [Int] {
