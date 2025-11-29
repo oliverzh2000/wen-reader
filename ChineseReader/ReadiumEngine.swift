@@ -178,6 +178,14 @@ final class ReadiumEngine: ObservableObject {
         }
 
         isOpening = false
+        
+        // DEBUG TESTS:
+        // TODO: move into unittests
+//        let segmenter = CedictSegmentationService(dict: CedictSqlService.shared, maxWordLength: 6)
+//        var sentences = ["毁家纾国难", "大义不容辞"]
+//        for sentence in sentences {
+//            print("segmented: \(await segmenter.segment(sentence))")
+//        }
     }
 
     // MARK: Navigation helpers you can call from SwiftUI buttons
