@@ -14,11 +14,6 @@ protocol DictionaryService {
 
     /// Return true if `word` exists in CEDICT (as trad or simp), false otherwise.
     func contains(_ word: String) async -> Bool
-
-    /// Return a greedy split pattern in *character counts*.
-    /// e.g. "中华人民共和国" -> [2, 2, 3] if those pieces are in CEDICT;
-    /// falls back to [1, 1, 1, ...] if nothing matches.
-    func greedySplitPattern(for word: String) async -> [Int]
 }
 
 // All dictionary entries returned for a lookup.
@@ -189,37 +184,6 @@ final class CedictSqlService: DictionaryService {
 
         sqlite3_bind_text(stmt, 1, cString, -1, SQLITE_TRANSIENT)
         return true
-    }
-
-    func greedySplitPattern(for word: String) async -> [Int] {
-        guard !word.isEmpty else { return [] }
-
-        let chars = Array(word)
-        var result: [Int] = []
-        var i = 0
-
-        while i < chars.count {
-            var bestLen = 1  // fallback to single char
-            var maxLen = chars.count - i
-
-            // Optional: cap to avoid absurd substring lengths
-            if maxLen > 8 { maxLen = 8 }
-
-            var len = maxLen
-            while len > 1 {
-                let candidate = String(chars[i..<i + len])
-                if await lookup(candidate) != nil {
-                    bestLen = len
-                    break
-                }
-                len -= 1
-            }
-
-            result.append(bestLen)
-            i += bestLen
-        }
-
-        return result
     }
 
     // MARK: - DB open
