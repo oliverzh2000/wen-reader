@@ -53,6 +53,19 @@ enum ReaderTheme: String, CaseIterable, Codable, Identifiable {
     }
 }
 
+enum PromptStyle: String, CaseIterable, Codable, Identifiable {
+    case quick, full
+    
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .quick: return "Concise Translation"
+        case .full: return "Detailed Explanation"
+        }
+    }
+}
+
 // MARK: - Default settings
 struct ReaderSettings: Codable, Equatable {
     var interactionMode: ReaderInteractionMode = .systemSelection
@@ -62,6 +75,7 @@ struct ReaderSettings: Codable, Equatable {
     var margins: Double = 1.0
     var justify: Bool = true
     var theme: ReaderTheme = .system
+    var promptStyle: PromptStyle = .quick
 }
 
 // MARK: - SettingsStore

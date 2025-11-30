@@ -7,6 +7,7 @@
 
 import ReadiumShared
 import SwiftUI
+import UIKit
 
 // MARK: - Surface
 private struct ReaderSurface: View {
@@ -79,6 +80,7 @@ struct ReaderView: View {
                     // Popover pinned to top or bottom
                     DictionaryPopover(
                         result: result,
+                        wordHit: hit,
                         initialSenseIndex: 0,
                         canGoBack: engine.canGoBackInDictionary,
                         onBack: {
@@ -327,6 +329,7 @@ struct SenseView: View {
 
 struct DictionaryPopover: View {
     let result: DictionaryResult
+    let wordHit: WordHit
     let canGoBack: Bool
     let onBack: () -> Void
     let onLinkTap: (LinkedHeadword) -> Void
@@ -338,12 +341,14 @@ struct DictionaryPopover: View {
 
     init(
         result: DictionaryResult,
+        wordHit: WordHit,
         initialSenseIndex: Int = 0,
         canGoBack: Bool,
         onBack: @escaping () -> Void,
         onLinkTap: @escaping (LinkedHeadword) -> Void
     ) {
         self.result = result
+        self.wordHit = wordHit
         self.canGoBack = canGoBack
         self.onBack = onBack
         self.onLinkTap = onLinkTap
@@ -359,6 +364,14 @@ struct DictionaryPopover: View {
         }
         return result.entries[selectedSenseIndex]
     }
+    
+    enum ShareScope {
+        case word
+        case sentence
+        case paragraph
+    }
+
+    @EnvironmentObject var settingsStore: SettingsStore
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -387,6 +400,67 @@ struct DictionaryPopover: View {
                 Text("\(selectedSenseIndex + 1) / \(result.entries.count)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                
+                Menu {
+                    Section("Send/Share") {
+                        // Pleco submenu
+                        Menu {
+                            Button("Word") {
+                                openInPleco(scope: .word, text: wordHit.word)
+                            }
+                            Button("Sentence") {
+                                openInPleco(scope: .sentence, text: wordHit.sentence)
+                            }
+                            Button("Paragraph") {
+                                openInPleco(scope: .paragraph, text: wordHit.block)
+                            }
+                        } label: {
+                            Label("Pleco", systemImage: "book.pages")
+                        }
+
+                        // ChatGPT submenu
+                        Menu {
+                            Section("Select Prompt Style") {
+                                Picker("Prompt Style", selection: $settingsStore.settings.promptStyle) {
+                                    ForEach(PromptStyle.allCases) { style in
+                                        Text(style.displayName).tag(style)
+                                    }
+                                }
+                                .pickerStyle(.inline)
+                            }
+                            Button("Word") {
+                                openInChatGPT(scope: .word, promptStyle: settingsStore.settings.promptStyle, text: wordHit.word, context: wordHit.sentence)
+                            }
+                            Button("Sentence") {
+                                openInChatGPT(scope: .sentence, promptStyle: settingsStore.settings.promptStyle, text: wordHit.sentence, context: nil)
+                            }
+                            Button("Paragraph") {
+                                openInChatGPT(scope: .paragraph, promptStyle: settingsStore.settings.promptStyle, text: wordHit.block, context: nil)
+                            }
+                        } label: {
+                            Label("ChatGPT", systemImage: "sparkles")
+                        }
+
+                        // Copy submenu
+                        Menu {
+                            Button("Word") {
+                                copyToClipboard(wordHit.word)
+                            }
+                            Button("Sentence") {
+                                copyToClipboard(wordHit.sentence)
+                            }
+                            Button("Paragraph") {
+                                copyToClipboard(wordHit.block)
+                            }
+                        } label: {
+                            Label("Copy", systemImage: "doc.on.doc")
+                        }
+                    }
+                } label: {
+                    Label("Share", systemImage: "square.and.arrow.up")
+                        .labelStyle(.iconOnly)
+                        .tint(.secondary)
+                }
             }
 
             // Headword: simplified [traditional]
@@ -534,6 +608,131 @@ struct DictionaryPopover: View {
 
         // Adjust to your actual LinkedHeadword initializer
         return LinkedHeadword(traditional: t, simplified: s)
+    }
+    
+
+    // MARK: - Send/Share helpers
+    
+    private func openInPleco(scope: ShareScope, text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        switch scope {
+        case .word:
+            // Direct word lookup in dictionary
+            guard let encoded = trimmed.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+                return
+            }
+
+            let urlString = "plecoapi://x-callback-url/s?q=\(encoded)"
+            guard let url = URL(string: urlString) else { return }
+
+            if UIApplication.shared.canOpenURL(url) {
+                UIApplication.shared.open(url, options: [:], completionHandler: nil)
+            } else {
+                // Fallback: copy word to clipboard
+                UIPasteboard.general.string = trimmed
+            }
+
+        case .sentence, .paragraph:
+            // For longer text, send to Clipboard Reader
+            UIPasteboard.general.string = trimmed
+
+            // URL to open Clipboard Reader
+            let urlString = "plecoapi://x-callback-url/clipboard"
+            guard let url = URL(string: urlString) else { return }
+
+            if UIApplication.shared.canOpenURL(url) {
+                UIApplication.shared.open(url, options: [:], completionHandler: nil)
+            } else {
+                // If Pleco isn’t installed, at least the text is on the clipboard
+                // (You could show a toast here.)
+            }
+        }
+    }
+
+    private func openInChatGPT(scope: ShareScope, promptStyle: PromptStyle, text: String, context: String?) {
+        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedContext = context?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let prompt = makeChatGPTPrompt(scope: scope, style: promptStyle, text: trimmedText, context: trimmedContext)
+
+        guard let encodedPrompt = prompt.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed) else {
+            return
+        }
+
+        // Deep link into ChatGPT via universal link
+        let urlString = "https://chat.openai.com/?q=\(encodedPrompt)"
+        guard let url = URL(string: urlString) else { return }
+
+        UIApplication.shared.open(url, options: [:], completionHandler: nil)
+    }
+    
+    private func makeChatGPTPrompt(scope: ShareScope, style: PromptStyle, text: String, context: String?) -> String {
+        switch (style, scope) {
+        case (.quick, .word):
+            // 2–3 word gloss, good for popup
+            return """
+            Give a concise 2–3 word English gloss for the following Chinese word, suitable for a popup dictionary. Do not explain, just give the gloss.
+
+            Word: \(text)
+            Sentence (for context): \(context ?? "")
+            """
+
+        case (.quick, .sentence):
+            return """
+            Translate the following Chinese sentence into natural, concise English. Only output the translation.
+
+            Sentence: \(text)
+            """
+
+        case (.quick, .paragraph):
+            return """
+            Translate the following Chinese paragraph into natural, concise English. Only output the translation.
+
+            Paragraph:
+            \(text)
+            """
+
+        case (.full, .word):
+            return """
+            Explain the following Chinese word in English. Include:
+            - A natural English translation
+            - Brief nuance and register (formal/informal, written/spoken)
+            - Any nuance or implied tone that is not obvious from a direct translation
+
+            Word: \(text)
+            Sentence (for context): \(context ?? "")
+            """
+
+        case (.full, .sentence):
+            return """
+            Explain the following Chinese sentence in English. Include:
+            - A natural English translation
+            - A brief breakdown of any key words or grammar points
+            - Any nuance or implied tone that is not obvious from a direct translation
+
+            Sentence: \(text)
+            """
+
+        case (.full, .paragraph):
+            return """
+            Explain the following Chinese paragraph in English. Include:
+            - A natural English translation
+            - A brief summary of the main idea
+            - Any important nuances, tone, or context implied by the wording
+
+            Paragraph:
+            \(text)
+            """
+        }
+    }
+
+    private func copyToClipboard(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        UIPasteboard.general.string = trimmed
+        // You can trigger a toast / haptic here if you want
     }
 }
 
