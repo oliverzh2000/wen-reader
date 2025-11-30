@@ -202,10 +202,13 @@ struct ReaderChromeModifier: SwiftUI.ViewModifier {
                     } label: {
                         HStack {
                             Text(title).lineLimit(1)
+                                .font(.body)
+                                .foregroundStyle(.secondary)
                             Image(systemName: "chevron.right")  // subtle disclosure cue
-                                .font(.footnote.weight(.semibold))
-                                .opacity(0.6)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
+                        .fontWeight(.semibold)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
