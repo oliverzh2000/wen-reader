@@ -1,6 +1,8 @@
  (function () {
    if (window.CR && window.CR.__ready) return;
 
+   // ---------- Utilities ----------
+
    function addClass(cls) {
      if (!document.documentElement.classList.contains(cls)) {
        document.documentElement.classList.add(cls);
@@ -11,24 +13,13 @@
      document.documentElement.classList.remove(cls);
    }
 
-   function injectStyleTag(cssText, id) {
-     if (id && document.getElementById(id)) return;
-     const style = document.createElement('style');
-     if (id) style.id = id;
-     style.type = 'text/css';
-     style.appendChild(document.createTextNode(cssText));
-     document.head.appendChild(style);
-   }
-
    function isWhitespace(ch) {
      return /\s/.test(ch);
    }
 
-   // Basic "is this a CJK Han character?"
    function isChinese(ch) {
      if (!ch) return false;
      const code = ch.charCodeAt(0);
-     // CJK Unified Ideographs + Extension A + Compatibility Ideographs (good enough)
      return (
        (code >= 0x3400 && code <= 0x4DBF) || // Ext A
        (code >= 0x4E00 && code <= 0x9FFF) || // Basic
@@ -36,73 +27,40 @@
      );
    }
 
-   // "Normal" sentence boundaries
    function isSentenceBoundary(ch) {
      return /[。！？!?]/.test(ch);
    }
 
-   // --- Jieba init management -------------------------------------------------
-   function ensureJiebaInit() {
-     if (!window.Jieba) return;
-
-     // Already started or finished
-     if (window.Jieba.__initStarted) return;
-
-     window.Jieba.__initStarted = true;
-
-     if (typeof window.Jieba.init === "function") {
-       try {
-         const p = window.Jieba.init();
-         if (p && typeof p.then === "function") {
-           window.Jieba.__initPromise = p
-             .then(() => {
-               window.Jieba.__ready = true;
-               // console.log("[CR] Jieba initialized");
-             })
-             .catch((e) => {
-               console.error("[CR] Jieba.init() failed", e);
-             });
-         } else {
-           // init returned non-promise; assume ready immediately
-           window.Jieba.__ready = true;
-         }
-       } catch (e) {
-         console.error("[CR] Exception during Jieba.init()", e);
-       }
+   function elementFromPointSafe(x, y) {
+     let el = document.elementFromPoint(x, y);
+     if (!el) return null;
+     if (el.nodeType === Node.TEXT_NODE) {
+       el = el.parentElement;
      }
+     return el;
    }
 
-   function jiebaCut(text) {
-     // Kick off init in background when we first try to cut
-     ensureJiebaInit();
-
-     if (
-       window.Jieba &&
-       window.Jieba.__ready &&
-       typeof window.Jieba.cut === "function"
-     ) {
-       try {
-         return window.Jieba.cut(text) || [];
-       } catch (e) {
-         console.error("[CR] Jieba.cut failed, falling back", e);
-         // Fall through to naive segmentation
-       }
-     }
-
-     // Fallback: simple 1-char chunks
-     const res = [];
-     for (let i = 0; i < text.length; i += 1) {
-       res.push(text.slice(i, i + 1));
-     }
-     return res;
+   function findBlockElementFromPoint(x, y) {
+     const el = elementFromPointSafe(x, y);
+     if (!el) return null;
+     return (
+       el.closest("p, div, li, article, section, td, th") ||
+       document.body
+     );
    }
 
-   // Idempotent segmentation: mark block with data-cr-segmented="1"
-   function segmentBlockElement(block) {
-     if (!block || block.dataset.crSegmented === "1") return;
+   // ---------- Generic segmentation helpers ----------
+
+   /**
+    * Generic helper: walk text nodes under `root`, call `segmentFn(node, text)`
+    * which returns a DocumentFragment to replace that text node with.
+    * Idempotency is controlled via `flagAttr` on root.
+    */
+   function segmentTextNodesOnce(root, flagAttr, segmentFn) {
+     if (!root || root.dataset[flagAttr] === "1") return;
 
      const walker = document.createTreeWalker(
-       block,
+       root,
        NodeFilter.SHOW_TEXT,
        {
          acceptNode(node) {
@@ -119,202 +77,193 @@
        textNodes.push(walker.currentNode);
      }
 
-     // Sentence-level state across the whole block
-     /** Array< Array<string> > : per-sentence tokens (words + punctuation, no whitespace) */
-     const allSentenceTokens = [];
-
-     /** Tokens for the current sentence */
-     let sentenceTokens = [];
-     /** Word spans belonging to the current sentence (for assigning sentenceId) */
-     let pendingWordSpans = [];
-     /** Next sentence id within this block */
-     let sentenceIdCounter = 0;
-     /** Token index within current sentence (0-based, includes punctuation tokens) */
-     let tokenIndexInSentence = 0;
-
-     function commitSentence() {
-       if (sentenceTokens.length === 0) {
-         // Nothing meaningful in this sentence; just reset.
-         pendingWordSpans = [];
-         tokenIndexInSentence = 0;
-         return;
-       }
-
-       const sentenceId = sentenceIdCounter;
-       allSentenceTokens.push(sentenceTokens.slice());
-
-       // Assign sentenceId to all word spans in this sentence
-       for (const span of pendingWordSpans) {
-         span.dataset.crSentenceId = String(sentenceId);
-       }
-
-       sentenceIdCounter += 1;
-       sentenceTokens = [];
-       pendingWordSpans = [];
-       tokenIndexInSentence = 0;
-     }
-
-     textNodes.forEach((node) => {
+     for (const node of textNodes) {
        const text = node.nodeValue;
-       const frag = document.createDocumentFragment();
-
-       let i = 0;
-       let chineseRun = "";
-
-       function flushChineseRun() {
-         if (!chineseRun) return;
-         const words = jiebaCut(chineseRun);
-         for (const w of words) {
-           if (!w) continue;
-           const span = document.createElement("span");
-           span.textContent = w;
-           span.className = "cr-word";
-           span.dataset.crWord = "1";
-
-           // Store token index (index into sentenceTokens)
-           span.dataset.crTokenIndex = String(tokenIndexInSentence);
-
-           // Append to DOM
-           frag.appendChild(span);
-
-           // Logical representation
-           sentenceTokens.push(w);
-           pendingWordSpans.push(span);
-           tokenIndexInSentence += 1;
-         }
-         chineseRun = "";
-       }
-
-       while (i < text.length) {
-         const ch = text[i];
-
-         if (isWhitespace(ch)) {
-           // Whitespace is kept visually but not added as a token
-           flushChineseRun();
-           frag.appendChild(document.createTextNode(ch));
-           i += 1;
-           continue;
-         }
-
-         if (isChinese(ch)) {
-           chineseRun += ch;
-           i += 1;
-           continue;
-         }
-
-         // Non-Chinese, non-whitespace char: punctuation / Latin / etc.
-         flushChineseRun();
-
-         // Add the character to the DOM as-is
-         frag.appendChild(document.createTextNode(ch));
-
-         // Treat each such char as a token (e.g., punctuation, Latin letter)
-         sentenceTokens.push(ch);
-         tokenIndexInSentence += 1;
-
-         // If this is a sentence boundary, finalize current sentence
-         if (isSentenceBoundary(ch)) {
-           commitSentence();
-         }
-
-         i += 1;
-       }
-
-       flushChineseRun(); // End of this text node
-
-       if (node.parentNode) {
+       if (!text) continue;
+       const frag = segmentFn(node, text);
+       if (frag && node.parentNode) {
          node.parentNode.replaceChild(frag, node);
        }
-     });
+     }
 
-     // Final trailing sentence in the block, if any
-     commitSentence();
-
-     // Attach tokens to the block so we can retrieve them later
-     block.__crSentenceTokens = allSentenceTokens;
-
-     block.dataset.crSegmented = "1";
+     root.dataset[flagAttr] = "1";
    }
 
-   function findBlockElementFromPoint(x, y) {
-     let el = document.elementFromPoint(x, y);
-     if (!el) return null;
+   // ---------- Sentence segmentation ----------
+     function ensureSentenceSpans(block) {
+       segmentTextNodesOnce(block, "crSentWrapped", function (_node, text) {
+         const frag = document.createDocumentFragment();
+         let currentSentenceSpan = null;
+         let buffer = "";
 
-     if (el.nodeType === Node.TEXT_NODE) {
-       el = el.parentElement;
-     }
-     if (!el) return null;
+         function ensureSentenceSpan() {
+           if (!currentSentenceSpan) {
+             currentSentenceSpan = document.createElement("span");
+             currentSentenceSpan.className = "cr-sentence";
+             frag.appendChild(currentSentenceSpan);
+           }
+           return currentSentenceSpan;
+         }
 
-     return (
-       el.closest("p, div, li, article, section, td, th") ||
-       document.body
-     );
-   }
+         function flushBuffer() {
+           if (!buffer) return;
+           const span = ensureSentenceSpan();
+           span.appendChild(document.createTextNode(buffer));
+           buffer = "";
+         }
 
-   function findWordSpanFromPoint(x, y) {
-     let el = document.elementFromPoint(x, y);
-     if (!el) return null;
+         for (let i = 0; i < text.length; i++) {
+           const ch = text[i];
 
-     if (el.nodeType === Node.TEXT_NODE) {
-       el = el.parentElement;
-     }
-     if (!el) return null;
+           if (isWhitespace(ch)) {
+             // End of any current sentence chunk; whitespace lives outside
+             flushBuffer();
+             currentSentenceSpan = null;
+             frag.appendChild(document.createTextNode(ch));
+             continue;
+           }
 
-     if (el.dataset && el.dataset.crWord === "1") {
-       return el;
-     }
-     return el.closest('[data-cr-word="1"]');
-   }
+           if (isSentenceBoundary(ch)) {
+             // Include the boundary char in this sentence
+             buffer += ch;
+             flushBuffer();
+             currentSentenceSpan = null; // next non-whitespace starts a new sentence
+           } else {
+             // Normal char: just accumulate
+             buffer += ch;
+           }
+         }
 
-   function getWordInfoForSpan(span) {
-     if (!span) return null;
+         // Flush trailing text if any
+         flushBuffer();
 
-     // Find the parent block that holds the sentence tokens
-     const block = span.closest('[data-cr-segmented="1"]');
-     if (!block) return null;
-
-     const sentenceIdStr = span.dataset.crSentenceId;
-     const tokenIndexStr = span.dataset.crTokenIndex;
-
-     if (sentenceIdStr == null || tokenIndexStr == null) {
-       return null;
-     }
-
-     const sentenceId = Number(sentenceIdStr);
-     const wordIndex = Number(tokenIndexStr);
-
-     const allSentenceTokens = block.__crSentenceTokens || [];
-     const sentenceTokens = allSentenceTokens[sentenceId] || [];
-
-     const rects = [];
-     const domRects = span.getClientRects();
-     for (let i = 0; i < domRects.length; i++) {
-       const r = domRects[i];
-       rects.push({
-         x: r.left,
-         y: r.top,
-         width: r.width,
-         height: r.height
+         return frag;
        });
      }
 
-     // New, compact format:
-     // - sentenceTokens: array of tokens (words + punctuation, no whitespace)
-     // - wordIndex: index into sentenceTokens
-     // - rects: client rects
-     return {
-       sentenceTokens,
-       wordIndex, // 0-based index in this sentence's token list
-       rects
-     };
+
+   function sentenceFromPoint(x, y, block) {
+     const el = elementFromPointSafe(x, y);
+     if (!el) return null;
+     return el.closest(".cr-sentence") || block;
    }
 
-   // ---------------------------------------------------------------------------
+   // ---------- Chinese run segmentation ----------
+
+   function ensureRunSpans(sentenceEl) {
+     segmentTextNodesOnce(sentenceEl, "crRunWrapped", function (_node, text) {
+       const frag = document.createDocumentFragment();
+       let run = "";
+
+       function flushRun() {
+         if (!run) return;
+         const span = document.createElement("span");
+         span.className = "cr-run";
+         span.dataset.crRun = "1";
+         span.dataset.crOriginalText = run;
+         span.textContent = run;
+         frag.appendChild(span);
+         run = "";
+       }
+
+       for (let i = 0; i < text.length; i++) {
+         const ch = text[i];
+
+         if (isChinese(ch)) {
+           run += ch;
+         } else {
+           flushRun();
+           frag.appendChild(document.createTextNode(ch));
+         }
+       }
+
+       flushRun();
+       return frag;
+     });
+   }
+
+   function runFromPoint(x, y) {
+     const el = elementFromPointSafe(x, y);
+     if (!el) return null;
+     if (el.dataset && el.dataset.crRun === "1") {
+       return el;
+     }
+     return el.closest('[data-cr-run="1"]');
+   }
+
+   function markLastRun(runSpan) {
+     if (!runSpan) return null;
+
+     if (window.CR._lastRunEl && window.CR._lastRunEl !== runSpan) {
+       if (window.CR._lastRunEl.id === "cr-current-run") {
+         window.CR._lastRunEl.id = "";
+       }
+     }
+
+     window.CR._lastRunEl = runSpan;
+     runSpan.id = "cr-current-run";
+     return runSpan.id;
+   }
+
+   // ---------- Word segmentation (using lengths) ----------
+
+   function ensureWordsForRun(runSpan, lengths) {
+     if (!runSpan) return;
+
+     const text =
+       runSpan.dataset.crOriginalText != null
+         ? runSpan.dataset.crOriginalText
+         : runSpan.textContent || "";
+
+     // Idempotent: always rebuild from original text & lengths
+     while (runSpan.firstChild) {
+       runSpan.removeChild(runSpan.firstChild);
+     }
+
+     let offset = 0;
+     lengths = Array.isArray(lengths) ? lengths : [];
+
+     for (let i = 0; i < lengths.length; i++) {
+       const len = lengths[i] | 0;
+       if (len <= 0) continue;
+       const end = offset + len;
+       if (end > text.length) break;
+
+       const part = text.slice(offset, end);
+       const span = document.createElement("span");
+       span.className = "cr-word";
+       span.dataset.crWord = "1";
+       span.textContent = part;
+       runSpan.appendChild(span);
+
+       offset = end;
+     }
+
+     // Any leftover chars (e.g., lengths don't cover the whole run) stay as plain text.
+     if (offset < text.length) {
+       runSpan.appendChild(
+         document.createTextNode(text.slice(offset))
+       );
+     }
+
+     runSpan.dataset.crWordsWrapped = "1";
+   }
+
+   function wordSpanFromPoint(x, y) {
+     const el = elementFromPointSafe(x, y);
+     if (!el) return null;
+     if (el.dataset && el.dataset.crWord === "1") return el;
+     return el.closest('[data-cr-word="1"]');
+   }
+
+   // ---------- Public API ----------
 
    window.CR = {
      __ready: true,
+     _lastRunEl: null,
      _lastWordEl: null,
 
+     // keep selectable toggling
      setSelectable: function (selectable) {
        if (selectable) {
          removeClass("cr-nonselectable");
@@ -331,33 +280,92 @@
        }
      },
 
-     // Main entry from Swift: highlight word under (x, y) and return info
-     highlightWordAtPoint: function (x, y) {
-       // Always clear existing previous highlight
-       window.CR.clearHighlight();
-
+     /**
+      * 1) Return context around (x, y).
+      * - Finds block, sentence, Chinese run.
+      * - Gives the run a stable ID for later (segmentAndHighlight).
+      * - Returns plain strings.
+      *
+      * Returns:
+      *   { block: string, sentence: string, run: string, runId: string|null }
+      * or null on failure.
+      */
+     getContextAtPoint: function (x, y) {
        x = Number(x);
        y = Number(y);
 
        const block = findBlockElementFromPoint(x, y);
        if (!block) return null;
 
-       // Ensure block is segmented; safe to call repeatedly
-       segmentBlockElement(block);
+       // 1) Ensure sentence spans live inside the block
+       ensureSentenceSpans(block);
+       const sentence = sentenceFromPoint(x, y, block) || block;
 
-       const span = findWordSpanFromPoint(x, y);
-       if (!span) return null;
+       // 2) Ensure Chinese runs live inside that sentence
+       ensureRunSpans(sentence);
+       const run = runFromPoint(x, y);
 
-       span.classList.add("cr-word-highlight");
-       window.CR._lastWordEl = span;
+       const runId = run ? markLastRun(run) : null;
 
-       return getWordInfoForSpan(span);
+       return {
+         block: block.innerText || "",
+         sentence: sentence.innerText || "",
+         run: run ? (run.textContent || "") : "",
+         runId: runId
+       };
      },
-   };
 
-   // Optionally: kick off init *immediately* when this file loads,
-   // even before the first segmentation.
-   if (window.Jieba) {
-     ensureJiebaInit();
-   }
+     /**
+      * 2) Segment the last run into words (using Swift-provided lengths)
+      *    and highlight the word under (x, y).
+      *
+      * Swift drives segmentation; JS only:
+      *   - Rebuilds spans for that run
+      *   - Chooses the word under the finger
+      *   - Applies .cr-word-highlight
+      */
+     segmentAndHighlightAtPoint: function (x, y, lengths) {
+       x = Number(x);
+       y = Number(y);
+
+       const run =
+         window.CR._lastRunEl ||
+         document.getElementById("cr-current-run");
+
+       if (!run) {
+         // No known run yet; nothing to do.
+         return;
+       }
+
+       // Idempotent segmentation into .cr-word spans
+       ensureWordsForRun(run, lengths);
+
+       // Clear old highlight (also idempotent)
+       window.CR.clearHighlight();
+
+       const wordSpan = wordSpanFromPoint(x, y);
+       if (!wordSpan) return;
+
+       wordSpan.classList.add("cr-word-highlight");
+       window.CR._lastWordEl = wordSpan;
+         
+         // Prepare rects as return value.
+         const rects = [];
+         const domRects = wordSpan.getClientRects();
+         for (let i = 0; i < domRects.length; i++) {
+           const r = domRects[i];
+           rects.push({
+             x: r.left,
+             y: r.top,
+             width: r.width,
+             height: r.height
+           });
+         }
+         
+         return {
+             word: wordSpan.textContent,
+             rects: rects
+         }
+     }
+   };
  })();

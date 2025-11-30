@@ -68,7 +68,7 @@ struct ReaderView: View {
             ReaderSurface(engine: engine)
 
             GeometryReader { proxy in
-                if let result = engine.currentDictResult {
+                if let hit = engine.currentWordHit, let result = engine.currentDictResult {
                     // If the word is in the bottom half of the screen, show popover on top, else bottom
                     let screenHeight = proxy.size.height
                     let hitY =

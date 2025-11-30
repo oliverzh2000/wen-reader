@@ -11,20 +11,13 @@ import UIKit
 import WebKit
 
 // Payload returned from JS side.
-struct WordHit {
-    let sentenceTokens: [String]
-    let wordIndex: Int
-    let rectsInWebView: [CGRect]
+struct WordHit: Equatable {
+    let block: String
+    let sentence: String
+    let run: String
+    let word: String
     let hitPoint: CGPoint
-
-    var word: String? {
-        guard sentenceTokens.indices.contains(wordIndex) else { return nil }
-        return sentenceTokens[wordIndex]
-    }
-
-    var sentenceJoined: String {
-        sentenceTokens.joined()
-    }
+    let rects: [CGRect]
 }
 
 /// Owns: selection toggle JS, long-press gesture, and reapplication on chapter changes.
@@ -42,7 +35,6 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
 
     // Cache JS/CSS payloads from bundle
     // TODO: make local to functions.
-    private let jiebaJS: String
     private let injectJS: String
     private let injectCSS: String
 
@@ -61,11 +53,6 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
 
     override init() {
         // Load the files once (fail-quiet with empty string if missing)
-        self.jiebaJS =
-            (try? ReaderInteractionManager.loadBundledText(
-                named: "jieba_rs_wasm_combined",
-                ext: "js"
-            )) ?? ""
         self.injectJS =
             (try? ReaderInteractionManager.loadBundledText(
                 named: "reader_inject",
@@ -134,7 +121,7 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
             })();
             """
         evalInAllWebViews(js)
-        
+
         // Reset this, so that pressing on same word again will still forward to engine.
         currentWordHit = nil
     }
@@ -188,30 +175,7 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
             })();
             """
 
-        // 2) Inject Jieba bundle as a <script> tag in the document
-        let escapedJieba =
-            jiebaJS
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "`", with: "\\`")
-            .replacingOccurrences(of: "$", with: "\\$")
-            .replacingOccurrences(of: "\n", with: "\\n")
-
-        let jiebaScriptJS = """
-            (function(){
-              try {
-                if (!window.Jieba) {
-                  const script = document.createElement('script');
-                  script.type = 'text/javascript';
-                  script.appendChild(document.createTextNode(`\(escapedJieba)`));
-                  document.head.appendChild(script);
-                }
-              } catch(e) {
-                console.error("Failed to inject Jieba", e);
-              }
-            })();
-            """
-
-        // 3) Inject the helper JS namespace (window.CR)
+        // 2) Inject the helper JS namespace (window.CR)
         let escapedJS =
             injectJS
             .replacingOccurrences(of: "\\", with: "\\\\")
@@ -231,7 +195,6 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
             """
 
         evalInAllWebViews(cssJS)
-        evalInAllWebViews(jiebaScriptJS)
         evalInAllWebViews(helperJS)
     }
 
@@ -269,18 +232,20 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
         case .began:
             isMagnifierActive = true
             setScrollingEnabled(false)  // freeze page swipes while magnifier is active
-            highlightWord(at: rootPoint)  // highlight initial word
+            handleLongPress(at: rootPoint)
 
         case .changed:
-            if isMagnifierActive {
-                highlightWord(at: rootPoint)  // follow finger with highlight
-            }
+            handleLongPress(at: rootPoint)
 
         case .ended, .cancelled, .failed:
             if isMagnifierActive {
                 isMagnifierActive = false
                 setScrollingEnabled(true)  // restore page swipes
-                // (optional later: send JS to clear highlight when finger lifts)
+                
+                // Only send nil word hits to engine on finger lift.
+                if self.currentWordHit == nil {
+                    onWordHit?(nil)
+                }
 
                 // Mark that a long press just finished
                 longPressEndTime = CACurrentMediaTime()
@@ -341,87 +306,136 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
         walk(root)
     }
 
-    //    highlight word under a given point in navigator-root coords
-    private func highlightWord(at rootPoint: CGPoint) {
+    func handleLongPress(at rootPoint: CGPoint) {
+        fetchContext(at: rootPoint) { block, sentence, run in
+            Task {
+                if run == "" {
+                    self.currentWordHit = nil
+                    // Don't send this nil hit to engine yet - that happens at finger lift.
+                    return
+                }
+                let segmenter = CedictSegmentationService(
+                    dict: CedictSqlService.shared,
+                    maxWordLength: 6
+                )
+                let segmentLengths = await segmenter.segment(run).map {
+                    $0.count
+                }
+                self.segmentAndHighlight(at: rootPoint, lengths: segmentLengths)
+                { word, rects in
+                    if rects != self.currentWordHit?.rects {
+                        let wordHit = WordHit(
+                            block: block,
+                            sentence: sentence,
+                            run: run,
+                            word: word,
+                            hitPoint: rootPoint,
+                            rects: rects
+                        )
+                        self.currentWordHit = wordHit
+                        if self.currentWordHit != nil {
+                            // Don't send this nil hit to engine yet - that happens at finger lift.
+                            self.onWordHit?(self.currentWordHit)
+                            self.impactFeedback.impactOccurred()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    func fetchContext(
+        at rootPoint: CGPoint,
+        completion:
+            @escaping (_ block: String, _ sentence: String, _ run: String) ->
+            Void
+    ) {
+        guard let root = navigatorVC?.view else {
+            return
+        }
+
+        for webView in findDescendantWKWebViews() {
+            let local = root.convert(rootPoint, to: webView)
+
+            let js = """
+                (function() {
+                  try {
+                    if (window.CR && window.CR.getContextAtPoint) {
+                      return window.CR.getContextAtPoint(\(local.x), \(local.y));
+                    }
+                  } catch (e) {
+                    console.error("CR.getContextAtPoint error", e);
+                  }
+                  return null;
+                })();
+                """
+
+            webView.evaluateJavaScript(js) { result, error in
+                guard
+                    error == nil,
+                    let dict = result as? [String: Any],
+                    let block = dict["block"] as? String,
+                    let sentence = dict["sentence"] as? String,
+                    let run = dict["run"] as? String
+                else {
+                    return
+                }
+                completion(block, sentence, run)
+            }
+        }
+    }
+
+    func segmentAndHighlight(
+        at rootPoint: CGPoint,
+        lengths: [Int],
+        completion: @escaping (_ word: String, _ rects: [CGRect]) -> Void
+    ) {
         guard let root = navigatorVC?.view else { return }
 
         for webView in findDescendantWKWebViews() {
             let local = root.convert(rootPoint, to: webView)
-            if webView.bounds.contains(local) {
-                let js = String(
-                    format: """
-                        (function() {
-                          try {
-                            if (window.CR && window.CR.highlightWordAtPoint) {
-                              return window.CR.highlightWordAtPoint(%f, %f);
-                            }
-                          } catch (e) {
-                            console.error("CR.highlightWordAtPoint error", e);
-                          }
-                          return null;
-                        })();
-                        """,
-                    local.x,
-                    local.y
-                )
 
-                webView.evaluateJavaScript(js) { result, error in
-                    if let error = error {
-                        print("JS error in highlightWordAtPoint: \(error)")
-                        self.currentWordHit = nil
-                        self.onWordHit?(nil)
+            // Serialize lengths to JS array
+            let lengthsJSON =
+                (try? JSONSerialization.data(withJSONObject: lengths)).flatMap {
+                    String(data: $0, encoding: .utf8)
+                } ?? "[]"
+
+            let js = """
+                (function() {
+                  try {
+                    if (window.CR && window.CR.segmentAndHighlightAtPoint) {
+                      return window.CR.segmentAndHighlightAtPoint(\(local.x), \(local.y), \(lengthsJSON));
                     }
+                  } catch (e) {
+                    console.error("CR.segmentAndHighlightAtPoint error", e);
+                  }
+                  return null;
+                })();
+                """
 
-                    guard
-                        let dict = result as? [String: Any],
-                        let sentenceTokens = dict["sentenceTokens"]
-                            as? [String],
-                        let wordIndexNumber = dict["wordIndex"] as? NSNumber
-                    else {
-                        self.currentWordHit = nil
-                        self.onWordHit?(nil)
-                        return
-                    }
-
-                    let wordIndex = wordIndexNumber.intValue
-
-                    var rects: [CGRect] = []
-                    if let rectArray = dict["rects"] as? [[String: Any]] {
-                        for rectDict in rectArray {
-                            guard
-                                let x = (rectDict["x"] as? NSNumber)?
-                                    .doubleValue,
-                                let y = (rectDict["y"] as? NSNumber)?
-                                    .doubleValue,
-                                let width = (rectDict["width"] as? NSNumber)?
-                                    .doubleValue,
-                                let height = (rectDict["height"] as? NSNumber)?
-                                    .doubleValue
-                            else { continue }
-                            rects.append(
-                                CGRect(x: x, y: y, width: width, height: height)
-                            )
-                        }
-                    }
-
-                    let hit = WordHit(
-                        sentenceTokens: sentenceTokens,
-                        wordIndex: wordIndex,
-                        rectsInWebView: rects,
-                        hitPoint: rootPoint
-                    )
-
-                    // Only update engine with word hit and perform haptic when we highlighted a new word.
-                    // Checking for new client rects is the most reliable method.
-                    if hit.rectsInWebView != self.currentWordHit?.rectsInWebView
-                    {
-                        self.currentWordHit = hit
-                        self.onWordHit?(hit)
-                        self.impactFeedback.prepare()
-                        self.impactFeedback.impactOccurred()
-                    }
+            webView.evaluateJavaScript(js) { result, error in
+                guard
+                    error == nil,
+                    let dict = result as? [String: Any],
+                    let word = dict["word"] as? String,
+                    let rectArray = dict["rects"] as? [[String: Any]]
+                else {
+                    return
                 }
-                break
+
+                let rects: [CGRect] = rectArray.compactMap { rd in
+                    guard
+                        let x = (rd["x"] as? NSNumber)?.doubleValue,
+                        let y = (rd["y"] as? NSNumber)?.doubleValue,
+                        let w = (rd["width"] as? NSNumber)?.doubleValue,
+                        let h = (rd["height"] as? NSNumber)?.doubleValue
+                    else {
+                        return nil
+                    }
+                    return CGRect(x: x, y: y, width: w, height: h)
+                }
+                completion(word, rects)
             }
         }
     }

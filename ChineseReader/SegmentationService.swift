@@ -10,17 +10,7 @@ import Foundation
 /// Protocol-based so you can swap impls or unit test easily.
 protocol SegmentationService {
     /// Segment a single run of Chinese text (no punctuation).
-    func segment(_ text: String) async -> [SegmentedToken]
-}
-
-/// One segmented token in a run of Chinese.
-struct SegmentedToken {
-    /// The surface form (e.g. "面对", "突如其来", "的").
-    let text: String
-
-    /// Character indices within the original input run.
-    let startIndex: Int    // inclusive
-    let endIndex: Int      // exclusive
+    func segment(_ text: String) async -> [String]
 }
 
 /// Segments runs of Chinese using CEDICT via DictionaryService.
@@ -38,7 +28,7 @@ final class CedictSegmentationService: SegmentationService {
         self.maxWordLength = maxWordLength
     }
 
-    func segment(_ text: String) async -> [SegmentedToken] {
+    func segment(_ text: String) async -> [String] {
         // Treat empty as trivial.
         guard !text.isEmpty else { return [] }
 
@@ -89,7 +79,7 @@ final class CedictSegmentationService: SegmentationService {
         }
 
         // Backtrack best path.
-        var tokens: [SegmentedToken] = []
+        var tokens: [String] = []
         var pos = n
 
         while pos > 0 {
@@ -108,9 +98,8 @@ final class CedictSegmentationService: SegmentationService {
                 end = j
             }
 
-            let range = stringIndices[start]..<stringIndices[end]
-            let surface = String(text[range])
-            tokens.append(SegmentedToken(text: surface, startIndex: start, endIndex: end))
+            let tokenRange = stringIndices[start]..<stringIndices[end]
+            tokens.append(String(text[tokenRange]))
 
             pos = start
         }
