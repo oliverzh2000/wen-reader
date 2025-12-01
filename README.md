@@ -1,20 +1,21 @@
-# WenReader  
-A clean, focused, fully offline Chinese EPUB reader on iOS for intermediate learners.
+# 文 — Wen Reader  
 
-WenReader is a free, open-source reading app built out of a genuine love for learning Chinese. It’s designed for readers who can already tackle native-level books — novels, essays, nonfiction — but still need quick, reliable dictionary support along the way.
+## A Chinese EPUB Reader with Pop-up Dictionary on iOS
+
+Wen Reader is a free, open-source reading app built out of a genuine love for learning Chinese. It’s designed for intermediate readers who can already tackle native-level books — novels, essays, nonfiction — but still need quick, reliable dictionary support along the way.
 
 Import your own EPUB files, read with high-quality typography, and long-press to instantly view integrated CEDICT definitions, all without leaving the page and all fully offline.
 
-If you’re looking for a modern, uncluttered Chinese reading experience that respects your privacy and stays out of your way, WenReader aims to be exactly that.
+If you’re looking for a modern, uncluttered Chinese reading experience that respects your privacy and stays out of your way, Wen Reader aims to be exactly that.
 
 ---
 
 ## Features
 
 ### EPUB Import & Reading
-- Import standard EPUB files from Files, iCloud, or AirDrop.  
+- Import standard EPUBs from Files.
 - Smooth pagination provided by the Readium Swift Toolkit.  
-- Adjustable reading preferences (margins, font size, line spacing, etc.).
+- Adjustable reading preferences (margins, font, line spacing, etc.).
 
 ### Long-Press Dictionary Popover
 - Long-press on any Chinese text to show an inline dictionary panel.  
@@ -36,21 +37,21 @@ If you’re looking for a modern, uncluttered Chinese reading experience that re
 
 ## Intended Audience
 
-WenReader is built for **intermediate Chinese learners**:
+Wen Reader is built for **intermediate Chinese learners**:
 
 - Readers who can understand native Chinese text with some effort.  
 - Learners who want a modern, clean EPUB reading experience without distractions.  
 - Users who benefit from quick dictionary support but do not need the full ecosystem of flashcards, handwriting input, OCR, etc.
 
-WenReader is **not** a replacement for Pleco. Pleco remains the most complete Chinese dictionary and learning tool available; WenReader is designed to complement it by focusing exclusively on reading EPUB books with an unobtrusive inline lookup workflow.
+Wen Reader is **not** a replacement for Pleco. Pleco remains the most complete Chinese dictionary and learning tool available; Wen Reader is designed to complement it by focusing exclusively on reading EPUB books with an unobtrusive inline lookup workflow.
 
-If you read Chinese novels, essays, or non-fiction and want a lightweight, privacy-respecting tool to assist your reading, WenReader aims to fill that niche.
+If you read Chinese novels, essays, or non-fiction and want a lightweight, privacy-respecting tool to assist your reading, Wen Reader aims to fill that niche.
 
 ---
 
 ## Technical Overview
 
-WenReader is implemented in Swift and SwiftUI.
+Wen Reader is implemented in Swift and SwiftUI.
 
 ### Rendering Engine
 - Uses **Readium Mobile / Readium Swift** for EPUB parsing and pagination.
@@ -72,7 +73,7 @@ Because all dictionary data and segmentation logic are stored locally, no extern
 
 ## Third-Party Acknowledgements
 
-WenReader would not be possible without the following open-source or freely licensed projects:
+Wen Reader would not be possible without the following open-source or freely licensed projects:
 
 - **CC-CEDICT**  
   https://cc-cedict.org/wiki/  
@@ -88,13 +89,13 @@ WenReader would not be possible without the following open-source or freely lice
 
 - **Pleco** (optional external integration)  
   https://www.pleco.com/  
-  Not bundled with the app; WenReader simply provides an option to send text to Pleco if installed.
+  Not bundled with the app; Wen Reader simply provides an option to send text to Pleco if installed.
 
 ---
 
 ## Privacy
 
-WenReader collects **no data**.  
+Wen Reader collects **no data**.  
 Specifically:
 
 - no analytics  
@@ -105,15 +106,15 @@ Specifically:
 
 All data — including imported books — stays on your device.
 
-For App Store purposes, WenReader falls under **“Data Not Collected.”**
+For App Store purposes, Wen Reader falls under **“Data Not Collected.”**
 
 ---
 
 ## Open Source & Community
 
-WenReader is free and open source as a small contribution back to the Chinese-learning community. I’m a heritage speaker who only began seriously learning Chinese in 2023, and reading native books played a huge role in helping me reconnect with the language. As a software developer, building this app felt like the most natural way to give something back — especially since this is the exact tool I always wished I had.
+Wen Reader is free and open source as a small contribution back to the Chinese-learning community. I’m a heritage speaker who only began seriously learning Chinese in 2023, and reading native books played a huge role in helping me reconnect with the language. As a software developer, building this app felt like the most natural way to give something back — especially since this is the exact tool I always wished I had.
 
-If you find WenReader useful, have ideas, or want to help shape its future, I’d love to hear from you.
+If you find Wen Reader useful, have ideas, or want to help shape its future, I’d love to hear from you.
 Issues, feedback, and pull requests are very welcome.
 
 You can reach me at oliverzh2000@gmail.com
@@ -132,20 +133,20 @@ You can reach me at oliverzh2000@gmail.com
 
 Planned improvements for future releases include:
 
-- Context-aware word segmentation
+- Context-aware word segmentation  
 Transitioning from heuristic / dictionary-driven segmentation to a transformer-based on-device model.
 This enables more accurate boundaries for idioms, rare words, and ambiguous cases that rule-based methods struggle with.
 
-- Optional on-device LLM for richer glosses
+- Optional on-device LLM for richer glosses  
 Users could toggle an offline model to generate concise sense-appropriate definitions or usage notes.
 
-- Improved highlighting system
+- Improved highlighting system  
 Fixing the known issue where dark mode highlights are overridden by Readium’s CSS.
 Longer-term: a more robust overlay-based highlight engine.
 
-Bookmarks & in-book search
+- Bookmarks & in-book search  
 Standard reading features that are on the way.
 
-Flashcard export
-Export looked-up words or highlighted words into a structured format for other tools.
+- Flashcard export  
+Export looked-up words or highlighted words into a structured format for other tools (Anki, Pleco, etc).
 
