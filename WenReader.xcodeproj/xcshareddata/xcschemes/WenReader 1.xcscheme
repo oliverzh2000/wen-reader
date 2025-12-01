@@ -16,9 +16,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "A72F17042EBFB35D00CB9815"
-               BuildableName = "ChineseReader.app"
-               BlueprintName = "ChineseReader"
-               ReferencedContainer = "container:ChineseReader.xcodeproj">
+               BuildableName = "WenReader.app"
+               BlueprintName = "WenReader"
+               ReferencedContainer = "container:WenReader.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -45,9 +45,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "A72F17042EBFB35D00CB9815"
-            BuildableName = "ChineseReader.app"
-            BlueprintName = "ChineseReader"
-            ReferencedContainer = "container:ChineseReader.xcodeproj">
+            BuildableName = "WenReader.app"
+            BlueprintName = "WenReader"
+            ReferencedContainer = "container:WenReader.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -62,9 +62,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "A72F17042EBFB35D00CB9815"
-            BuildableName = "ChineseReader.app"
-            BlueprintName = "ChineseReader"
-            ReferencedContainer = "container:ChineseReader.xcodeproj">
+            BuildableName = "WenReader.app"
+            BlueprintName = "WenReader"
+            ReferencedContainer = "container:WenReader.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

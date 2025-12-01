@@ -14,26 +14,26 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		A72F17052EBFB35D00CB9815 /* ChineseReader.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ChineseReader.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A72F17052EBFB35D00CB9815 /* WenReader.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WenReader.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		A73F40D82EC147DC00152BF2 /* Exceptions for "ChineseReader" folder in "ChineseReader" target */ = {
+		A73F40D82EC147DC00152BF2 /* Exceptions for "WenReader" folder in "WenReader" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
 			);
-			target = A72F17042EBFB35D00CB9815 /* ChineseReader */;
+			target = A72F17042EBFB35D00CB9815 /* WenReader */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		A72F17072EBFB35D00CB9815 /* ChineseReader */ = {
+		A72F17072EBFB35D00CB9815 /* WenReader */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				A73F40D82EC147DC00152BF2 /* Exceptions for "ChineseReader" folder in "ChineseReader" target */,
+				A73F40D82EC147DC00152BF2 /* Exceptions for "WenReader" folder in "WenReader" target */,
 			);
-			path = ChineseReader;
+			path = WenReader;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -56,7 +56,7 @@
 		A72F16FC2EBFB35D00CB9815 = {
 			isa = PBXGroup;
 			children = (
-				A72F17072EBFB35D00CB9815 /* ChineseReader */,
+				A72F17072EBFB35D00CB9815 /* WenReader */,
 				A72F17062EBFB35D00CB9815 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -64,7 +64,7 @@
 		A72F17062EBFB35D00CB9815 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				A72F17052EBFB35D00CB9815 /* ChineseReader.app */,
+				A72F17052EBFB35D00CB9815 /* WenReader.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -72,9 +72,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		A72F17042EBFB35D00CB9815 /* ChineseReader */ = {
+		A72F17042EBFB35D00CB9815 /* WenReader */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = A72F17102EBFB35E00CB9815 /* Build configuration list for PBXNativeTarget "ChineseReader" */;
+			buildConfigurationList = A72F17102EBFB35E00CB9815 /* Build configuration list for PBXNativeTarget "WenReader" */;
 			buildPhases = (
 				A72F17012EBFB35D00CB9815 /* Sources */,
 				A72F17022EBFB35D00CB9815 /* Frameworks */,
@@ -85,17 +85,17 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				A72F17072EBFB35D00CB9815 /* ChineseReader */,
+				A72F17072EBFB35D00CB9815 /* WenReader */,
 			);
-			name = ChineseReader;
+			name = WenReader;
 			packageProductDependencies = (
 				A72F172A2EC01F5100CB9815 /* ReadiumNavigator */,
 				A72F172C2EC01F5100CB9815 /* ReadiumShared */,
 				A72F172E2EC01F5100CB9815 /* ReadiumStreamer */,
 				A72F17302EC0255600CB9815 /* ReadiumAdapterGCDWebServer */,
 			);
-			productName = ChineseReader;
-			productReference = A72F17052EBFB35D00CB9815 /* ChineseReader.app */;
+			productName = WenReader;
+			productReference = A72F17052EBFB35D00CB9815 /* WenReader.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -113,7 +113,7 @@
 					};
 				};
 			};
-			buildConfigurationList = A72F17002EBFB35D00CB9815 /* Build configuration list for PBXProject "ChineseReader" */;
+			buildConfigurationList = A72F17002EBFB35D00CB9815 /* Build configuration list for PBXProject "WenReader" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -130,7 +130,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				A72F17042EBFB35D00CB9815 /* ChineseReader */,
+				A72F17042EBFB35D00CB9815 /* WenReader */,
 			);
 		};
 /* End PBXProject section */
@@ -287,7 +287,7 @@
 				DEVELOPMENT_TEAM = 68S24LVS27;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = ChineseReader/Info.plist;
+				INFOPLIST_FILE = WenReader/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -298,7 +298,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.oliverzhang.ChineseReader;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.oliverzhang.WenReader;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -320,7 +320,7 @@
 				DEVELOPMENT_TEAM = 68S24LVS27;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = ChineseReader/Info.plist;
+				INFOPLIST_FILE = WenReader/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -331,7 +331,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.oliverzhang.ChineseReader;
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.oliverzhang.WenReader;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -346,7 +346,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		A72F17002EBFB35D00CB9815 /* Build configuration list for PBXProject "ChineseReader" */ = {
+		A72F17002EBFB35D00CB9815 /* Build configuration list for PBXProject "WenReader" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				A72F170E2EBFB35E00CB9815 /* Debug */,
@@ -355,7 +355,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		A72F17102EBFB35E00CB9815 /* Build configuration list for PBXNativeTarget "ChineseReader" */ = {
+		A72F17102EBFB35E00CB9815 /* Build configuration list for PBXNativeTarget "WenReader" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				A72F17112EBFB35E00CB9815 /* Debug */,

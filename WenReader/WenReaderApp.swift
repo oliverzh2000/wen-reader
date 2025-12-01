@@ -1,5 +1,5 @@
 //
-//  SkeletonApp.swift
+//  WenReaderApp.swift
 //  ChineseReader
 //
 //  Created by Oliver Zhang on 2025-11-08.
@@ -8,7 +8,7 @@
 import SwiftUI
 
 @main
-struct ChineseReaderApp: App {
+struct WenReaderApp: App {
     @StateObject private var catalog = CatalogStore()
     @StateObject private var globalUiState = UiState()
     @StateObject private var settingsStore = SettingsStore()
