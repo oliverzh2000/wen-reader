@@ -16,12 +16,12 @@ struct BookItem: Identifiable, Codable, Hashable {
     let id: UUID
     var title: String?
     var authors: [String]
-    /// File name of the saved cover image in Application Support/Covers
-    var coverFileName: String?
     /// Unique ID for this book, such as ISBN
     var canonicalID: String?
     /// File name of the local copy inside Application Support/Books (sandbox)
-    var relativePath: String
+    var bookFileName: String
+    /// File name of the saved cover image inside sandbox
+    var coverFileName: String?
 }
 
 // MARK: - Global UI State
@@ -53,9 +53,6 @@ final class CatalogStore: ObservableObject {
                 
                 // Load metadata (title, authors, cover image) from the copied EPUB
                 let metadata = await EpubMetadataLoader.load(from: url)
-                print(metadata?.title)
-                print(metadata?.authors)
-                print(metadata?.canonicalID)
                 // De-dupe by book ID.
                 if await books.contains(where: { $0.canonicalID == metadata?.canonicalID }) { return }
 
@@ -68,8 +65,8 @@ final class CatalogStore: ObservableObject {
                 var coverFileName: String?
                 if let coverImage = metadata?.cover,
                    let data = coverImage.jpegData(compressionQuality: 0.1) {
-                    let fileName = "\(id.uuidString).jpg"
-                    let coverURL = FileManager.appSupportCoversDir
+                    let fileName = "\(id.uuidString)-cover.jpg"
+                    let coverURL = FileManager.appSupportBooksDir
                         .appendingPathComponent(fileName)
                     do {
                         try data.write(to: coverURL, options: .atomic)
@@ -83,9 +80,9 @@ final class CatalogStore: ObservableObject {
                     id: id,
                     title: metadata?.title,
                     authors: metadata?.authors ?? [],
-                    coverFileName: coverFileName,
                     canonicalID: metadata?.canonicalID,
-                    relativePath: dest.lastPathComponent
+                    bookFileName: dest.lastPathComponent,
+                    coverFileName: coverFileName,
                 )
 
                 await MainActor.run {
@@ -109,9 +106,7 @@ final class CatalogStore: ObservableObject {
         try? FileManager.default.removeItem(at: local)
 
         // Delete cover file, if present
-        if let coverFileName = book.coverFileName {
-            let coverURL = FileManager.appSupportCoversDir
-                .appendingPathComponent(coverFileName)
+        if let coverURL = coverURL(for: book) {
             try? FileManager.default.removeItem(at: coverURL)
         }
 
@@ -120,13 +115,13 @@ final class CatalogStore: ObservableObject {
     }
 
     func localURL(for book: BookItem) -> URL {
-        FileManager.appSupportBooksDir.appendingPathComponent(book.relativePath)
+        FileManager.appSupportBooksDir.appendingPathComponent(book.bookFileName)
     }
 
     /// Convenience: URL for cover image on disk
     func coverURL(for book: BookItem) -> URL? {
         guard let name = book.coverFileName else { return nil }
-        return FileManager.appSupportCoversDir.appendingPathComponent(name)
+        return FileManager.appSupportBooksDir.appendingPathComponent(name)
     }
 
     /// Convenience: load a UIImage for a book's cover (simple, sync)
@@ -180,19 +175,6 @@ extension FileManager {
             in: .userDomainMask
         )[0]
         let dir = base.appendingPathComponent("Books", isDirectory: true)
-        try? FileManager.default.createDirectory(
-            at: dir,
-            withIntermediateDirectories: true
-        )
-        return dir
-    }
-
-    nonisolated static var appSupportCoversDir: URL {
-        let base = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        )[0]
-        let dir = base.appendingPathComponent("Covers", isDirectory: true)
         try? FileManager.default.createDirectory(
             at: dir,
             withIntermediateDirectories: true
