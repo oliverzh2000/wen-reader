@@ -110,10 +110,10 @@ struct ReaderView: View {
             .spring(response: 0.25, dampingFraction: 1.0),
             value: engine.currentDictResult != nil
         )
-        .navigationTitle(book.displayName)
+        .navigationTitle(book.title ?? "")
         .navigationBarTitleDisplayMode(.inline)
         .readerChrome(
-            title: book.displayName,
+            title: book.title ?? "",
             showChrome: $showChrome,
             showChapters: $showChapters,
             showSettings: $showSettings

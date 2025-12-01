@@ -9,11 +9,17 @@ import Combine
 import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
+import UIKit
 
 // MARK: - Models
 struct BookItem: Identifiable, Codable, Hashable {
     let id: UUID
-    var displayName: String
+    var title: String?
+    var authors: [String]
+    /// File name of the saved cover image in Application Support/Covers
+    var coverFileName: String?
+    /// Unique ID for this book, such as ISBN
+    var canonicalID: String?
     /// File name of the local copy inside Application Support/Books (sandbox)
     var relativePath: String
 }
@@ -34,44 +40,80 @@ final class CatalogStore: ObservableObject {
 
     /// Import by copying the selected EPUB into our sandbox. Avoids security-scope persistence.
     func add(url: URL) {
-        Task.detached { [books] in
+        Task.detached { [weak self] in
+            guard let self else { return }
+
             let accessed = url.startAccessingSecurityScopedResource()
             defer { if accessed { url.stopAccessingSecurityScopedResource() } }
 
             do {
-                let name = url.deletingPathExtension().lastPathComponent
-
-                // De-dupe by display name
-                if books.contains(where: { $0.displayName == name }) { return }
-
                 let id = UUID()
                 let dest = FileManager.appSupportBooksDir
                     .appendingPathComponent("\(id.uuidString).epub")
+                
+                // Load metadata (title, authors, cover image) from the copied EPUB
+                let metadata = await EpubMetadataLoader.load(from: url)
+                print(metadata?.title)
+                print(metadata?.authors)
+                print(metadata?.canonicalID)
+                // De-dupe by book ID.
+                if await books.contains(where: { $0.canonicalID == metadata?.canonicalID }) { return }
 
+                // Make a copy of this book in app support dir
                 if !FileManager.default.fileExists(atPath: dest.path) {
                     try FileManager.default.copyItem(at: url, to: dest)
                 }
 
+                // Save cover image (if any) to disk and remember its filename
+                var coverFileName: String?
+                if let coverImage = metadata?.cover,
+                   let data = coverImage.jpegData(compressionQuality: 0.1) {
+                    let fileName = "\(id.uuidString).jpg"
+                    let coverURL = FileManager.appSupportCoversDir
+                        .appendingPathComponent(fileName)
+                    do {
+                        try data.write(to: coverURL, options: .atomic)
+                        coverFileName = fileName
+                    } catch {
+                        Log.error("Failed to write cover image: \(error)")
+                    }
+                }
+
                 let item = BookItem(
                     id: id,
-                    displayName: name,
+                    title: metadata?.title,
+                    authors: metadata?.authors ?? [],
+                    coverFileName: coverFileName,
+                    canonicalID: metadata?.canonicalID,
                     relativePath: dest.lastPathComponent
                 )
 
-                await MainActor.run { [weak self] in
-                    self?.books.insert(item, at: 0)
+                await MainActor.run {
+                    self.books.insert(item, at: 0)
                 }
             } catch {
                 Log.error("Import error: \(error)")
             }
         }
     }
+    
+    func update(_ book: BookItem) {
+        guard let idx = books.firstIndex(where: { $0.id == book.id }) else { return }
+        books[idx] = book
+    }
 
     /// Delete from catalog and the sandboxed copy that was created on import.
     func remove(_ book: BookItem) {
+        // Delete EPUB file
         let local = localURL(for: book)
-
         try? FileManager.default.removeItem(at: local)
+
+        // Delete cover file, if present
+        if let coverFileName = book.coverFileName {
+            let coverURL = FileManager.appSupportCoversDir
+                .appendingPathComponent(coverFileName)
+            try? FileManager.default.removeItem(at: coverURL)
+        }
 
         guard let idx = books.firstIndex(of: book) else { return }
         books.remove(at: idx)
@@ -81,9 +123,22 @@ final class CatalogStore: ObservableObject {
         FileManager.appSupportBooksDir.appendingPathComponent(book.relativePath)
     }
 
+    /// Convenience: URL for cover image on disk
+    func coverURL(for book: BookItem) -> URL? {
+        guard let name = book.coverFileName else { return nil }
+        return FileManager.appSupportCoversDir.appendingPathComponent(name)
+    }
+
+    /// Convenience: load a UIImage for a book's cover (simple, sync)
+    func coverImage(for book: BookItem) -> UIImage? {
+        guard let url = coverURL(for: book) else { return nil }
+        return UIImage(contentsOfFile: url.path)
+    }
+
     private func persist() {
         Defaults.setCodable(books, forKey: storageKey)
     }
+
     private func restore() {
         books = Defaults.codable(
             [BookItem].self,
@@ -106,7 +161,7 @@ enum Defaults {
         default def: T
     ) -> T {
         guard let data = UserDefaults.standard.data(forKey: key),
-            let decoded = try? JSONDecoder().decode(type, from: data)
+              let decoded = try? JSONDecoder().decode(type, from: data)
         else { return def }
         return decoded
     }
@@ -125,6 +180,19 @@ extension FileManager {
             in: .userDomainMask
         )[0]
         let dir = base.appendingPathComponent("Books", isDirectory: true)
+        try? FileManager.default.createDirectory(
+            at: dir,
+            withIntermediateDirectories: true
+        )
+        return dir
+    }
+
+    nonisolated static var appSupportCoversDir: URL {
+        let base = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        )[0]
+        let dir = base.appendingPathComponent("Covers", isDirectory: true)
         try? FileManager.default.createDirectory(
             at: dir,
             withIntermediateDirectories: true
