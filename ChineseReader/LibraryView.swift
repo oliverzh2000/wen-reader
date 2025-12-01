@@ -34,12 +34,16 @@ struct LibraryView: View {
                                 onRename: {
                                     renamingBook = book
                                     newTitle = book.title ?? ""
-                                },
-                                onDelete: {
-                                    catalog.remove(book)
                                 }
                             )
-                            .alert("Rename Book", isPresented: Binding(
+                            .swipeActions(edge: .trailing) {
+                                Button(role: .destructive) {
+                                    catalog.remove(book)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
+                            .alert("Rename Book Title", isPresented: Binding(
                                 get: { renamingBook != nil },
                                 set: { if !$0 { renamingBook = nil } }
                             )) {
@@ -56,10 +60,9 @@ struct LibraryView: View {
                                 Button("Cancel", role: .cancel) {
                                     renamingBook = nil
                                 }
-                            } message: {
-                                Text("You can override the original EPUB title with your own.")
                             }
                         }
+                        .navigationLinkIndicatorVisibility(.hidden)
                     }
                 }
             }
@@ -109,7 +112,6 @@ private struct LibraryRow: View {
     let book: BookItem
     let coverImage: UIImage?
     let onRename: () -> Void
-    let onDelete: () -> Void
     
     @ScaledMetric(relativeTo: .largeTitle)
     private var iconHeight: CGFloat = 70
@@ -121,14 +123,13 @@ private struct LibraryRow: View {
                     Image(uiImage: coverImage)
                         .resizable()
                         .scaledToFit()
-                        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
                 } else {
                     Image(systemName: "book.closed")
                         .resizable()
                         .scaledToFit()
                 }
             }
-            .frame(width: iconHeight * 0.8, height: iconHeight)
+            .frame(width: iconHeight, height: iconHeight)
             
             VStack(alignment: .leading) {
                 Text(book.title ?? "No Title").font(.headline)
@@ -136,23 +137,23 @@ private struct LibraryRow: View {
             }
             
             Spacer()
-
+            
             // Trailing menu for row actions
             Menu {
                 Button {
                     onRename()
                 } label: {
-                    Label("Rename Title", systemImage: "pencil")
-                }
-
-                Button(role: .destructive) {
-                    onDelete()
-                } label: {
-                    Label("Delete Book", systemImage: "trash")
+                    Label("Rename", systemImage: "character.cursor.ibeam")
                 }
             } label: {
-                Image(systemName: "ellipsis.circle")
+                Image(systemName: "ellipsis")
+                    .labelStyle(.iconOnly)
+                    .tint(.secondary)
+                    .font(.body)
+                    .padding(.vertical, 24)
+                    .padding(.horizontal, 8)
+                    .contentShape(Rectangle()) // ensures entire padded area is tappable
             }
-            .buttonStyle(.borderless)        }
+        }
     }
 }
