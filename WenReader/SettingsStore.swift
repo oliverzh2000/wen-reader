@@ -10,16 +10,16 @@ import Foundation
 
 // MARK: - Enums
 enum ReaderInteractionMode: String, CaseIterable, Codable, Identifiable {
-    case customMagnifier  // with inline pinyin/definition under magnifier
-    case systemSelection  // default iOS selection
+    case custom  // with inline pinyin/definition under magnifier
+    case system  // default iOS selection
 
     var id: String { rawValue }
 
     mutating func toggle() {
-        if self == .customMagnifier {
-            self = .systemSelection
+        if self == .custom {
+            self = .system
         } else {
-            self = .customMagnifier
+            self = .custom
         }
     }
 }
@@ -39,7 +39,7 @@ enum ReaderFont: String, CaseIterable, Codable, Identifiable {
 }
 
 enum ReaderTheme: String, CaseIterable, Codable, Identifiable {
-    case light, dark, sepia, system
+    case light, dark, system
 
     var id: String { rawValue }
 
@@ -47,7 +47,6 @@ enum ReaderTheme: String, CaseIterable, Codable, Identifiable {
         switch self {
         case .light: return "Light"
         case .dark: return "Dark"
-        case .sepia: return "Sepia"
         case .system: return "System"
         }
     }
@@ -68,7 +67,7 @@ enum PromptStyle: String, CaseIterable, Codable, Identifiable {
 
 // MARK: - Default settings
 struct ReaderSettings: Codable, Equatable {
-    var interactionMode: ReaderInteractionMode = .systemSelection
+    var interactionMode: ReaderInteractionMode = .system
     var font: ReaderFont = .notoSerifSC
     var fontSize: Double = 1.5
     var lineHeight: Double = 1.5

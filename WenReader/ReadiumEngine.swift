@@ -261,16 +261,14 @@ extension ReadiumEngine: EPUBNavigatorDelegate {
             editor.theme.set(.light)
         case .dark:
             editor.theme.set(.dark)
-        case .sepia:
-            editor.theme.set(.sepia)
         case .system:
             editor.theme.set(systemColorScheme == .light ? .light : .dark)
         }
         
         switch s.interactionMode {
-        case .systemSelection:
+        case .system:
             interactionManager.setMode(.systemSelection)
-        case .customMagnifier:
+        case .custom:
             interactionManager.setMode(.customMagnifier)
         }
 
