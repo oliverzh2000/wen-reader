@@ -222,12 +222,12 @@ struct ReaderChromeModifier: SwiftUI.ViewModifier {
                         Button {
                             settingsStore.settings.interactionMode.toggle()
                         } label: {
-                            Image(
-                                systemName: settingsStore.settings
-                                    .interactionMode
-                                    == .customMagnifier
-                                    ? "sparkles" : "text.magnifyingglass"
-                            )
+                            Image(systemName: "text.magnifyingglass")
+                                .foregroundColor(
+                                    settingsStore.settings.interactionMode == .custom
+                                    ? .accentColor      // Active: blue (or your theme)
+                                    : .secondary         // Inactive: gray
+                                )
                         }
                         Button {
                             showSettings = true
