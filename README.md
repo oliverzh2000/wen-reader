@@ -8,6 +8,12 @@ Import your own EPUBs, read with great typography, and stay fully offline.
 
 ---
 
+<p align="center">
+  <img src="images/library-screenshot.png" alt="Library View with Imported EPUBs" width="45%" />
+  <img src="images/reader-screenshot.png" alt="Reader with Dictionary Popup" width="45%" />
+</p>
+
+
 ## Features
 
 ### EPUB Import & Reading
