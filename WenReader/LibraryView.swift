@@ -69,7 +69,7 @@ struct LibraryView: View {
         }
         .navigationTitle("Library")
         .toolbar {
-            ToolbarItem(placement: .bottomBar) {
+            ToolbarItem() {
                 Button {
                     showImporter = true
                 } label: {

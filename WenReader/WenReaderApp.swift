@@ -15,11 +15,28 @@ struct WenReaderApp: App {
 
     var body: some Scene {
         WindowGroup {
-            NavigationStack { LibraryView() }
-                .environmentObject(catalog)
-                .environmentObject(globalUiState)
-                .environmentObject(settingsStore)
-                .statusBarHidden(globalUiState.hideStatusBar)
+            TabView {
+                // Library tab
+                NavigationStack {
+                    LibraryView()
+                }
+                .tabItem {
+                    Label("Library", systemImage: "books.vertical")
+                }
+
+                // Settings tab
+                NavigationStack {
+                    AboutView()
+                }
+                .tabItem {
+                    Label("About", systemImage: "info.circle")
+                }
+            }
+            // Environment objects apply to both tabs
+            .environmentObject(catalog)
+            .environmentObject(globalUiState)
+            .environmentObject(settingsStore)
+            .statusBarHidden(globalUiState.hideStatusBar)
         }
     }
 }
