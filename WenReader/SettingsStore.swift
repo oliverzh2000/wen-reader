@@ -67,9 +67,9 @@ enum PromptStyle: String, CaseIterable, Codable, Identifiable {
 
 // MARK: - Default settings
 struct ReaderSettings: Codable, Equatable {
-    var interactionMode: ReaderInteractionMode = .system
+    var interactionMode: ReaderInteractionMode = .custom
     var font: ReaderFont = .notoSerifSC
-    var fontSize: Double = 1.5
+    var fontSize: Double = 1.2
     var lineHeight: Double = 1.5
     var margins: Double = 1.0
     var justify: Bool = true
