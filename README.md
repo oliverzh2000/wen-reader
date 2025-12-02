@@ -128,12 +128,6 @@ You can reach me at oliverzh2000@gmail.com
 
 ---
 
-## Screenshots & Demos
-
-*(To be added: images and short video demonstrations of the reading UI, long-press dictionary popover, ToC, and EPUB import workflow.)*
-
----
-
 ## Roadmap (Non-binding)
 
 Planned improvements for future releases include:
