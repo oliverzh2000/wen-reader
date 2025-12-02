@@ -47,6 +47,7 @@ private struct ReaderSurface: View {
                 Text("No content")
             }
         }
+        .toolbar(.hidden, for: .tabBar)
     }
 }
 
