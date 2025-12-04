@@ -136,9 +136,6 @@ Planned improvements for future releases include:
 Transitioning from heuristic / dictionary-driven segmentation to a transformer-based on-device model.
 This enables more accurate boundaries for idioms, rare words, and ambiguous cases that rule-based methods struggle with.
 
-- Optional on-device LLM for richer glosses  
-Users could toggle an offline model to generate concise sense-appropriate definitions or usage notes.
-
 - Improved highlighting system  
 Fixing the known issue where dark mode highlights are overridden by Readium’s CSS.
 Longer-term: a more robust overlay-based highlight engine.
