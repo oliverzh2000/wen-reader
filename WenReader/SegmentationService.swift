@@ -23,11 +23,12 @@ final class CedictSegmentationService: SegmentationService {
     /// Simple in-memory cache so we don't hammer SQL on repeated substrings.
     /// Limited to prevent unbounded growth during long reading sessions.
     private var containsCache: [String: Bool] = [:]
-    private let maxCacheSize = 1000
+    private let maxCacheSize: Int
 
-    init(dict: DictionaryService, maxWordLength: Int = 6) {
+    init(dict: DictionaryService, maxWordLength: Int = ReaderConstants.Segmentation.maxWordLength) {
         self.dict = dict
         self.maxWordLength = maxWordLength
+        self.maxCacheSize = ReaderConstants.Segmentation.maxCacheSize
     }
 
     func segment(_ text: String) async -> [String] {

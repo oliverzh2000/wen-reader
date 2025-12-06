@@ -210,7 +210,7 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
             target: self,
             action: #selector(handleLongPress(_:))
         )
-        lp.minimumPressDuration = 0.2  // keeps quick horizontal flicks for page turns
+        lp.minimumPressDuration = ReaderConstants.Interaction.longPressDuration
         lp.cancelsTouchesInView = false  // don't steal the pan
         lp.delegate = self
         view.addGestureRecognizer(lp)
@@ -271,7 +271,7 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
     }
 
     /// Returns true iff a long-press ended very recently.
-    func consumeSuppressedTap(threshold: CFTimeInterval = 0.1) -> Bool {
+    func consumeSuppressedTap(threshold: CFTimeInterval = ReaderConstants.Interaction.tapSuppressionWindow) -> Bool {
         let now = CACurrentMediaTime()
         if now - longPressEndTime < threshold {
             // Consume exactly one tap
@@ -323,7 +323,7 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
                 }
                 let segmenter = CedictSegmentationService(
                     dict: CedictSqlService.shared,
-                    maxWordLength: 6
+                    maxWordLength: ReaderConstants.Segmentation.maxWordLength
                 )
                 let segmentLengths = await segmenter.segment(run).map {
                     $0.count

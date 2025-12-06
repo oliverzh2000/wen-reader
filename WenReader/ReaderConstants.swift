@@ -1,0 +1,49 @@
+//
+//  ReaderConstants.swift
+//  WenReader
+//
+//  Created by architectural refactoring
+//
+
+import CoreGraphics
+import Foundation
+
+/// Centralized constants for the reader feature
+enum ReaderConstants {
+    
+    /// Dictionary popover display settings
+    enum Dictionary {
+        /// Maximum height for dictionary popover
+        static let popoverMaxHeight: CGFloat = 300
+        
+        /// Animation response time for dictionary transitions
+        static let animationResponse: Double = 0.25
+        
+        /// Animation damping factor for dictionary transitions
+        static let animationDamping: Double = 1.0
+    }
+    
+    /// Location persistence settings
+    enum Persistence {
+        /// Minimum interval between location saves to throttle writes
+        static let saveThrottleInterval: TimeInterval = 0.5
+    }
+    
+    /// User interaction timing constants
+    enum Interaction {
+        /// Duration for long press gesture recognition
+        static let longPressDuration: TimeInterval = 0.2
+        
+        /// Time window to suppress taps after long press ends
+        static let tapSuppressionWindow: TimeInterval = 0.1
+    }
+    
+    /// Segmentation settings
+    enum Segmentation {
+        /// Maximum word length for dictionary-based segmentation
+        static let maxWordLength: Int = 6
+        
+        /// Maximum cache size for word lookup results
+        static let maxCacheSize: Int = 1000
+    }
+}

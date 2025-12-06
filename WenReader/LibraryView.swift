@@ -99,26 +99,7 @@ struct LibraryView: View {
                 catalog.lastError = .bookImportFailed(reason: err.localizedDescription)
             }
         }
-        .alert(
-            "Import Error",
-            isPresented: Binding(
-                get: { catalog.lastError != nil },
-                set: { if !$0 { catalog.lastError = nil } }
-            ),
-            presenting: catalog.lastError
-        ) { _ in
-            Button("OK", role: .cancel) {
-                catalog.lastError = nil
-            }
-        } message: { error in
-            VStack(alignment: .leading, spacing: 8) {
-                Text(error.localizedDescription)
-                if let suggestion = error.recoverySuggestion {
-                    Text(suggestion)
-                        .font(.caption)
-                }
-            }
-        }
+        .errorAlert(title: "Import Error", error: $catalog.lastError)
         .scrollBounceBehavior(.basedOnSize)
     }
 }

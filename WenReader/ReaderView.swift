@@ -94,7 +94,7 @@ struct ReaderView: View {
                     )
                     .padding([.leading, .trailing, .bottom])
                     .ignoresSafeArea(edges: .bottom)
-                    .frame(maxHeight: 300)
+                    .frame(maxHeight: ReaderConstants.Dictionary.popoverMaxHeight)
                     .frame(
                         maxWidth: .infinity,
                         maxHeight: .infinity,
@@ -108,7 +108,10 @@ struct ReaderView: View {
             }
         }
         .animation(
-            .spring(response: 0.25, dampingFraction: 1.0),
+            .spring(
+                response: ReaderConstants.Dictionary.animationResponse,
+                dampingFraction: ReaderConstants.Dictionary.animationDamping
+            ),
             value: engine.currentDictResult != nil
         )
         .navigationTitle(book.title ?? "")
@@ -156,26 +159,7 @@ struct ReaderView: View {
                 )
             }
         }
-        .alert(
-            "Failed to Open Book",
-            isPresented: Binding(
-                get: { engine.openError != nil },
-                set: { if !$0 { engine.openError = nil } }
-            ),
-            presenting: engine.openError
-        ) { _ in
-            Button("OK", role: .cancel) {
-                engine.openError = nil
-            }
-        } message: { error in
-            VStack(alignment: .leading, spacing: 8) {
-                Text(error.localizedDescription)
-                if let suggestion = error.recoverySuggestion {
-                    Text(suggestion)
-                        .font(.caption)
-                }
-            }
-        }
+        .errorAlert(title: "Failed to Open Book", error: $engine.openError)
         .sheet(isPresented: $showChapters) {
             TableOfContentsSheet(
                 publication: engine.publication,
@@ -918,36 +902,3 @@ struct SettingsSheet: View {
         }
     }
 }
-
-// MARK: - Preview
-//struct DictionaryPopover_Previews: PreviewProvider {
-//    static var previews: some View {
-//        let sample = DictionaryEntry(
-//            headword: "长",
-//            senses: [
-//                .init(
-//                    traditional: "長",
-//                    simplified: "长",
-//                    accentedPinyin: ["cháng"],
-//                    glosses: [
-//                        "long; lengthy",
-//                        "to grow; to develop",
-//                    ]
-//                ),
-//                .init(
-//                    traditional: "長",
-//                    simplified: "长",
-//                    accentedPinyin: ["zhǎng"],
-//                    glosses: [
-//                        "to head; to lead",
-//                        "elder; senior; chief",
-//                    ]
-//                ),
-//            ]
-//        )
-//
-//        DictionaryPopover(entry: sample)
-//            .padding()
-//            .previewLayout(.sizeThatFits)
-//    }
-//}

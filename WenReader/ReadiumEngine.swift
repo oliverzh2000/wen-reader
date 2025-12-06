@@ -207,7 +207,7 @@ final class ReadiumEngine: ObservableObject {
         guard let id = bookId else { return }
         // Throttle writes a bit (avoid writing several times per second)
         let now = Date()
-        guard now.timeIntervalSince(lastSavedAt) > 0.5 else { return }
+        guard now.timeIntervalSince(lastSavedAt) > ReaderConstants.Persistence.saveThrottleInterval else { return }
         lastSavedAt = now
 
         let key = "lastLocation.\(id.uuidString)"
