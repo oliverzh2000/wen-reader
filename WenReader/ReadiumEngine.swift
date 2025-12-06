@@ -79,10 +79,11 @@ final class ReadiumEngine: ObservableObject {
     
     // To click into a link.
     func pushDictionary(for word: String) {
-        Task {
-            if let result = await dictionaryService.lookup(word) {
-                dictStack.append(result)
-                currentDictResult = result
+        Task { [weak self] in
+            guard let self else { return }
+            if let result = await self.dictionaryService.lookup(word) {
+                self.dictStack.append(result)
+                self.currentDictResult = result
             }
         }
     }
