@@ -61,7 +61,7 @@ private let SQLITE_TRANSIENT = unsafeBitCast(
     to: sqlite3_destructor_type.self
 )
 
-final class CedictSqlService: DictionaryService {
+actor CedictSqlService: DictionaryService {
     static let shared = CedictSqlService()
     private var db: OpaquePointer?
 
