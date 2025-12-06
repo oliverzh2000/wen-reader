@@ -21,7 +21,9 @@ final class CedictSegmentationService: SegmentationService {
     private let maxWordLength: Int
 
     /// Simple in-memory cache so we don't hammer SQL on repeated substrings.
+    /// Limited to prevent unbounded growth during long reading sessions.
     private var containsCache: [String: Bool] = [:]
+    private let maxCacheSize = 1000
 
     init(dict: DictionaryService, maxWordLength: Int = 6) {
         self.dict = dict
@@ -132,6 +134,15 @@ final class CedictSegmentationService: SegmentationService {
         }
 
         let result = await dict.contains(word)
+        
+        // Limit cache size to prevent unbounded growth
+        if containsCache.count >= maxCacheSize {
+            // Simple eviction: clear half the cache (FIFO-ish behavior)
+            // For better performance, could use LRU, but this is simple and effective
+            let keysToRemove = Array(containsCache.keys.prefix(maxCacheSize / 2))
+            keysToRemove.forEach { containsCache.removeValue(forKey: $0) }
+        }
+        
         containsCache[word] = result
         return result
     }
