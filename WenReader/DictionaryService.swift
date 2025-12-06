@@ -159,7 +159,7 @@ final class CedictSqlService: DictionaryService {
             return false
         default:
             let msg = String(cString: sqlite3_errmsg(db))
-            print("CEDICT: contains() step failed: \(msg)")
+            Log.error("CEDICT: contains() step failed: \(msg)")
             return false
         }
     }
@@ -173,12 +173,12 @@ final class CedictSqlService: DictionaryService {
     ) -> Bool {
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
             let msg = String(cString: sqlite3_errmsg(db))
-            print("CEDICT: prepare failed: \(msg)")
+            Log.error("CEDICT: prepare failed: \(msg)")
             return false
         }
 
         guard let cString = (word as NSString).utf8String else {
-            print("CEDICT: failed to get UTF-8 for word: \(word)")
+            Log.error("CEDICT: failed to get UTF-8 for word: \(word)")
             return false
         }
 
@@ -196,7 +196,7 @@ final class CedictSqlService: DictionaryService {
                 withExtension: dbFileExtension
             )
         else {
-            print("CEDICTWithLLM: could not find cedict DB in bundle")
+            Log.error("CEDICT: could not find cedict DB in bundle")
             return
         }
 
@@ -204,7 +204,7 @@ final class CedictSqlService: DictionaryService {
         let rc = sqlite3_open_v2(url.path, &handle, SQLITE_OPEN_READONLY, nil)
         if rc != SQLITE_OK {
             let msg = String(cString: sqlite3_errmsg(handle))
-            print("CEDICTWithLLM: failed to open DB: \(msg)")
+            Log.error("CEDICT: failed to open DB: \(msg)")
             if let handle { sqlite3_close(handle) }
             return
         }
