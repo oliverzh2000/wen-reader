@@ -49,8 +49,15 @@ struct LibraryView: View {
                                 TextField("Title", text: $newTitle)
 
                                 Button("Save") {
+                                    let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                                    // Validate: must not be empty and must be reasonable length
+                                    guard !trimmed.isEmpty, trimmed.count <= 200 else {
+                                        renamingBook = nil
+                                        return
+                                    }
+                                    
                                     if var book = renamingBook {
-                                        book.title = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                                        book.title = trimmed
                                         catalog.update(book)
                                     }
                                     renamingBook = nil
