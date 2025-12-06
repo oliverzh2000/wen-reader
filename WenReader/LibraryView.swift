@@ -11,7 +11,6 @@ import UniformTypeIdentifiers
 struct LibraryView: View {
     @EnvironmentObject private var catalog: CatalogStore
     @State private var showImporter = false
-    @State private var importError: String?
     
     @State private var renamingBook: BookItem?
     @State private var newTitle: String = ""
@@ -90,19 +89,28 @@ struct LibraryView: View {
                 guard let first = urls.first else { return }
                 withAnimation { catalog.add(url: first) }
             case .failure(let err):
-                importError = err.localizedDescription
+                catalog.lastError = .bookImportFailed(reason: err.localizedDescription)
             }
         }
         .alert(
-            "Import failed",
+            "Import Error",
             isPresented: Binding(
-                get: { importError != nil },
-                set: { _ in importError = nil }
-            )
-        ) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(importError ?? "Unknown error")
+                get: { catalog.lastError != nil },
+                set: { if !$0 { catalog.lastError = nil } }
+            ),
+            presenting: catalog.lastError
+        ) { _ in
+            Button("OK", role: .cancel) {
+                catalog.lastError = nil
+            }
+        } message: { error in
+            VStack(alignment: .leading, spacing: 8) {
+                Text(error.localizedDescription)
+                if let suggestion = error.recoverySuggestion {
+                    Text(suggestion)
+                        .font(.caption)
+                }
+            }
         }
         .scrollBounceBehavior(.basedOnSize)
     }

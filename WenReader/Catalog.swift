@@ -34,6 +34,7 @@ final class UiState: ObservableObject {
 @MainActor
 final class CatalogStore: ObservableObject {
     @Published private(set) var books: [BookItem] = [] { didSet { persist() } }
+    @Published var lastError: AppError?
     private let storageKey = "catalog.books.v1"
 
     init() { restore() }
@@ -52,18 +53,36 @@ final class CatalogStore: ObservableObject {
                     .appendingPathComponent("\(id.uuidString).epub")
                 
                 // Load metadata (title, authors, cover image) from the copied EPUB
-                let metadata = await EpubMetadataLoader.load(from: url)
+                guard let metadata = await EpubMetadataLoader.load(from: url) else {
+                    await MainActor.run {
+                        self.lastError = .invalidEPUB(reason: "Could not read book information")
+                    }
+                    return
+                }
+                
                 // De-dupe by book ID.
-                if await books.contains(where: { $0.canonicalID == metadata?.canonicalID }) { return }
+                if await books.contains(where: { $0.canonicalID == metadata.canonicalID }) {
+                    await MainActor.run {
+                        self.lastError = .bookImportFailed(reason: "This book has already been imported")
+                    }
+                    return
+                }
 
                 // Make a copy of this book in app support dir
                 if !FileManager.default.fileExists(atPath: dest.path) {
-                    try FileManager.default.copyItem(at: url, to: dest)
+                    do {
+                        try FileManager.default.copyItem(at: url, to: dest)
+                    } catch {
+                        await MainActor.run {
+                            self.lastError = .fileOperationFailed(operation: "copy book file", underlying: error)
+                        }
+                        return
+                    }
                 }
 
                 // Save cover image (if any) to disk and remember its filename
                 var coverFileName: String?
-                if let coverImage = metadata?.cover,
+                if let coverImage = metadata.cover,
                    let data = coverImage.jpegData(compressionQuality: 0.1) {
                     let fileName = "\(id.uuidString)-cover.jpg"
                     let coverURL = FileManager.appSupportBooksDir
@@ -72,15 +91,16 @@ final class CatalogStore: ObservableObject {
                         try data.write(to: coverURL, options: .atomic)
                         coverFileName = fileName
                     } catch {
+                        // Non-fatal: we can continue without cover
                         Log.error("Failed to write cover image: \(error)")
                     }
                 }
 
                 let item = BookItem(
                     id: id,
-                    title: metadata?.title,
-                    authors: metadata?.authors ?? [],
-                    canonicalID: metadata?.canonicalID,
+                    title: metadata.title,
+                    authors: metadata.authors,
+                    canonicalID: metadata.canonicalID,
                     bookFileName: dest.lastPathComponent,
                     coverFileName: coverFileName,
                 )
@@ -89,7 +109,9 @@ final class CatalogStore: ObservableObject {
                     self.books.insert(item, at: 0)
                 }
             } catch {
-                Log.error("Import error: \(error)")
+                await MainActor.run {
+                    self.lastError = .bookImportFailed(reason: error.localizedDescription)
+                }
             }
         }
     }

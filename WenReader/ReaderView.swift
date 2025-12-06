@@ -156,6 +156,26 @@ struct ReaderView: View {
                 )
             }
         }
+        .alert(
+            "Failed to Open Book",
+            isPresented: Binding(
+                get: { engine.openError != nil },
+                set: { if !$0 { engine.openError = nil } }
+            ),
+            presenting: engine.openError
+        ) { _ in
+            Button("OK", role: .cancel) {
+                engine.openError = nil
+            }
+        } message: { error in
+            VStack(alignment: .leading, spacing: 8) {
+                Text(error.localizedDescription)
+                if let suggestion = error.recoverySuggestion {
+                    Text(suggestion)
+                        .font(.caption)
+                }
+            }
+        }
         .sheet(isPresented: $showChapters) {
             TableOfContentsSheet(
                 publication: engine.publication,

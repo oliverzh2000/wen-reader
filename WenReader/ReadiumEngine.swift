@@ -25,7 +25,7 @@ final class ReadiumEngine: ObservableObject {
     // Outputs for the UI
     @Published var publication: Publication?
     @Published var navigatorVC: EPUBNavigatorViewController?
-    @Published var openError: Error?
+    @Published var openError: AppError?
     @Published var isOpening: Bool = false
     @Published var currentLocation: Locator?
     
@@ -105,41 +105,50 @@ final class ReadiumEngine: ObservableObject {
         openError = nil
 
         do {
-            let assetResult = await assetRetriever.retrieve(
-                url: fileURL.anyURL.absoluteURL!
-            )
+            guard let absoluteURL = fileURL.anyURL.absoluteURL else {
+                self.openError = .bookOpenFailed(reason: "Invalid file URL")
+                isOpening = false
+                return
+            }
+            
+            let assetResult = await assetRetriever.retrieve(url: absoluteURL)
             guard case .success(let asset) = assetResult else {
-                if case .failure(let e) = assetResult { throw e }
+                if case .failure(let e) = assetResult {
+                    self.openError = .bookOpenFailed(reason: e.localizedDescription)
+                }
+                isOpening = false
                 return
             }
 
             let openResult = await publicationOpener.open(
                 asset: asset,
-                // If you add LCP later, set to true so the toolkit may prompt
                 allowUserInteraction: true,
                 sender: sender
             )
             guard case .success(let pub) = openResult else {
-                if case .failure(let e) = openResult { throw e }
+                if case .failure(let e) = openResult {
+                    self.openError = .bookOpenFailed(reason: e.localizedDescription)
+                }
+                isOpening = false
                 return
             }
 
             self.publication = pub
 
-            // Decide profile; we’re targeting EPUB here
+            // Ensure this is an EPUB
             guard pub.conforms(to: .epub) else {
-                throw NSError(
-                    domain: "Reader",
-                    code: 1,
-                    userInfo: [
-                        NSLocalizedDescriptionKey:
-                            "Unsupported format (not EPUB)."
-                    ]
-                )
+                self.openError = .invalidEPUB(reason: "Only EPUB format is supported")
+                isOpening = false
+                return
             }
 
             let initial = loadLastLocation()
-            let resources = Bundle.main.resourceURL!  // Bundle root
+            guard let resources = Bundle.main.resourceURL else {
+                self.openError = .bookOpenFailed(reason: "Failed to access app resources")
+                isOpening = false
+                return
+            }
+            
             let navigator = try EPUBNavigatorViewController(
                 publication: pub,
                 initialLocation: initial,
@@ -174,7 +183,7 @@ final class ReadiumEngine: ObservableObject {
                 updateDictionaryResult(for: hit?.word)
             }
         } catch {
-            self.openError = error
+            self.openError = .bookOpenFailed(reason: error.localizedDescription)
         }
 
         isOpening = false
