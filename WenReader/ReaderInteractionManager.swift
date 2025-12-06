@@ -156,41 +156,47 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
 
     private func injectHelpersIntoAllVisibleWebViews() {
         // 1) Inject CSS (once per doc) by appending a <style> tag
-        let escapedCSS =
-            injectCSS
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "`", with: "\\`")
-            .replacingOccurrences(of: "$", with: "\\$")
-            .replacingOccurrences(of: "\n", with: "\\n")
+        // Use JSON encoding for proper escaping
+        guard let cssData = try? JSONEncoder().encode(injectCSS),
+              let cssJSON = String(data: cssData, encoding: .utf8) else {
+            Log.error("Failed to encode CSS for injection")
+            return
+        }
 
         let cssJS = """
             (function(){
               try {
                 if (!document.getElementById('cr-nonselectable-style')) {
-                  const s = document.createElement('style'); s.id='cr-nonselectable-style'; s.type='text/css';
-                  s.appendChild(document.createTextNode(`\(escapedCSS)`));
+                  const s = document.createElement('style');
+                  s.id='cr-nonselectable-style';
+                  s.type='text/css';
+                  s.appendChild(document.createTextNode(\(cssJSON)));
                   document.head.appendChild(s);
                 }
-              } catch(e) {}
+              } catch(e) {
+                console.error('CR CSS injection failed:', e);
+              }
             })();
             """
 
         // 2) Inject the helper JS namespace (window.CR)
-        let escapedJS =
-            injectJS
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "`", with: "\\`")
-            .replacingOccurrences(of: "$", with: "\\$")
-            .replacingOccurrences(of: "\n", with: "\\n")
+        // Use JSON encoding for proper escaping
+        guard let jsData = try? JSONEncoder().encode(injectJS),
+              let jsJSON = String(data: jsData, encoding: .utf8) else {
+            Log.error("Failed to encode JS for injection")
+            return
+        }
 
         let helperJS = """
             (function(){
               try {
                 const script = document.createElement('script');
                 script.type = 'text/javascript';
-                script.appendChild(document.createTextNode(`\(escapedJS)`));
+                script.appendChild(document.createTextNode(\(jsJSON)));
                 document.head.appendChild(script);
-              } catch(e) {}
+              } catch(e) {
+                console.error('CR JS injection failed:', e);
+              }
             })();
             """
 
