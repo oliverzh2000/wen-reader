@@ -55,7 +55,8 @@ final class ReadiumEngine: ObservableObject {
     private let dictionaryService: DictionaryService = CedictSqlService.shared
 
     func updateDictionaryResult(for word: String?) {
-        Task {
+        Task { [weak self] in
+            guard let self else { return }
             guard let word else {
                 self.closeDictionaryAndClearHighlight()
                 return

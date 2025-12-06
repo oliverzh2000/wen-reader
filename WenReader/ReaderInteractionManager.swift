@@ -307,7 +307,8 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
     }
 
     func handleLongPress(at rootPoint: CGPoint) {
-        fetchContext(at: rootPoint) { block, sentence, run in
+        fetchContext(at: rootPoint) { [weak self] block, sentence, run in
+            guard let self else { return }
             Task {
                 if run == "" {
                     self.currentWordHit = nil
@@ -322,7 +323,8 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
                     $0.count
                 }
                 self.segmentAndHighlight(at: rootPoint, lengths: segmentLengths)
-                { word, rects in
+                { [weak self] word, rects in
+                    guard let self else { return }
                     if rects != self.currentWordHit?.rects {
                         let wordHit = WordHit(
                             block: block,
