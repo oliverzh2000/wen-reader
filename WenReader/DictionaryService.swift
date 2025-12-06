@@ -61,9 +61,10 @@ private let SQLITE_TRANSIENT = unsafeBitCast(
     to: sqlite3_destructor_type.self
 )
 
-actor CedictSqlService: DictionaryService {
+final class CedictSqlService: DictionaryService {
     static let shared = CedictSqlService()
     private var db: OpaquePointer?
+    private let dbQueue = DispatchQueue(label: "com.wenreader.dictionary", qos: .userInitiated)
 
     // Adjust to match how you bundle the DB
     private let dbFileName = "cedict"  // cedict.sqlite -> "cedict"
@@ -74,8 +75,13 @@ actor CedictSqlService: DictionaryService {
     }
 
     deinit {
+        closeDatabase()
+    }
+    
+    private func closeDatabase() {
         if let db {
             sqlite3_close(db)
+            self.db = nil
         }
     }
 
@@ -85,82 +91,123 @@ actor CedictSqlService: DictionaryService {
     }
 
     func lookup(_ word: String) async -> DictionaryResult? {
-        openDatabaseIfNeeded()
-        guard let db else { return nil }
+        return await withCheckedContinuation { continuation in
+            dbQueue.async { [weak self] in
+                guard let self else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                
+                self.openDatabaseIfNeeded()
+                guard let db = self.db else {
+                    continuation.resume(returning: nil)
+                    return
+                }
 
-        let sql = """
-            SELECT trad, simp, pinyin, senses_raw
-            FROM cedict_entries
-            WHERE trad = ?1 OR simp = ?1;
-            """
+                let sql = """
+                    SELECT trad, simp, pinyin, senses_raw
+                    FROM cedict_entries
+                    WHERE trad = ?1 OR simp = ?1;
+                    """
 
-        var stmt: OpaquePointer?
-        guard prepareAndBind(sql, word: word, stmt: &stmt) else { return nil }
-        defer { sqlite3_finalize(stmt) }
+                var stmt: OpaquePointer?
+                guard self.prepareAndBind(sql, word: word, stmt: &stmt) else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                defer { 
+                    if let stmt {
+                        sqlite3_finalize(stmt)
+                    }
+                }
 
-        var entries: [Entry] = []
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            guard
-                let tradC = sqlite3_column_text(stmt, 0),
-                let simpC = sqlite3_column_text(stmt, 1),
-                let pinyinC = sqlite3_column_text(stmt, 2),
-                let sensesC = sqlite3_column_text(stmt, 3)
-            else {
-                continue
+                var entries: [Entry] = []
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    guard
+                        let tradC = sqlite3_column_text(stmt, 0),
+                        let simpC = sqlite3_column_text(stmt, 1),
+                        let pinyinC = sqlite3_column_text(stmt, 2),
+                        let sensesC = sqlite3_column_text(stmt, 3)
+                    else {
+                        continue
+                    }
+
+                    let trad = String(cString: tradC)
+                    let simp = String(cString: simpC)
+                    let pinyinRaw = String(cString: pinyinC)
+                    let sensesRaw = String(cString: sensesC)
+
+                    let accentedPinyin: [String] =
+                        pinyinRaw
+                        .split(separator: " ")
+                        .map { Self.numberedToAccentedPinyin(String($0)) }
+
+                    let senses = Self.parseSenses(from: sensesRaw)
+
+                    entries.append(
+                        Entry(
+                            traditional: trad,
+                            simplified: simp,
+                            accentedPinyin: accentedPinyin,
+                            senses: senses
+                        )
+                    )
+                }
+
+                let result = entries.isEmpty ? nil : DictionaryResult(entries: entries)
+                continuation.resume(returning: result)
             }
-
-            let trad = String(cString: tradC)
-            let simp = String(cString: simpC)
-            let pinyinRaw = String(cString: pinyinC)
-            let sensesRaw = String(cString: sensesC)
-
-            let accentedPinyin: [String] =
-                pinyinRaw
-                .split(separator: " ")
-                .map { Self.numberedToAccentedPinyin(String($0)) }
-
-            let senses = Self.parseSenses(from: sensesRaw)
-
-            entries.append(
-                Entry(
-                    traditional: trad,
-                    simplified: simp,
-                    accentedPinyin: accentedPinyin,
-                    senses: senses
-                )
-            )
         }
-
-        guard !entries.isEmpty else { return nil }
-        return DictionaryResult(entries: entries)
     }
 
     func contains(_ word: String) async -> Bool {
-        openDatabaseIfNeeded()
-        guard let db else { return false }
+        return await withCheckedContinuation { continuation in
+            dbQueue.async { [weak self] in
+                guard let self else {
+                    continuation.resume(returning: false)
+                    return
+                }
+                
+                self.openDatabaseIfNeeded()
+                guard let db = self.db else {
+                    continuation.resume(returning: false)
+                    return
+                }
 
-        let sql = """
-            SELECT 1
-            FROM cedict_entries
-            WHERE trad = ?1 OR simp = ?1
-            LIMIT 1;
-            """
+                let sql = """
+                    SELECT 1
+                    FROM cedict_entries
+                    WHERE trad = ?1 OR simp = ?1
+                    LIMIT 1;
+                    """
 
-        var stmt: OpaquePointer?
-        guard prepareAndBind(sql, word: word, stmt: &stmt) else { return false }
-        defer { sqlite3_finalize(stmt) }
+                var stmt: OpaquePointer?
+                guard self.prepareAndBind(sql, word: word, stmt: &stmt) else {
+                    continuation.resume(returning: false)
+                    return
+                }
+                defer { 
+                    if let stmt {
+                        sqlite3_finalize(stmt)
+                    }
+                }
 
-        // If we get a row, the word exists.
-        let stepResult = sqlite3_step(stmt)
-        switch stepResult {
-        case SQLITE_ROW:
-            return true
-        case SQLITE_DONE:
-            return false
-        default:
-            let msg = String(cString: sqlite3_errmsg(db))
-            Log.error("CEDICT: contains() step failed: \(msg)")
-            return false
+                // If we get a row, the word exists.
+                let stepResult = sqlite3_step(stmt)
+                let result: Bool
+                switch stepResult {
+                case SQLITE_ROW:
+                    result = true
+                case SQLITE_DONE:
+                    result = false
+                default:
+                    let msg = String(cString: sqlite3_errmsg(db))
+                    Log.error("CEDICT: contains() step failed: \(msg)")
+                    result = false
+                }
+                
+                continuation.resume(returning: result)
+            }
         }
     }
 
