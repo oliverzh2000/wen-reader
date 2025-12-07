@@ -30,157 +30,81 @@ final class UiState: ObservableObject {
     @Published var hideStatusBar = false
 }
 
-// MARK: - Catalog Store (UI-facing; IO off main thread)
+// MARK: - Catalog Store (UI-facing; delegates to repository for data operations)
 @MainActor
 final class CatalogStore: ObservableObject {
-    @Published private(set) var books: [BookItem] = [] { didSet { persist() } }
+    @Published private(set) var books: [BookItem] = []
     @Published var lastError: AppError?
-    private let storageKey = "catalog.books.v1"
+    
+    private let repository: BookRepository
 
-    init() { restore() }
+    init(repository: BookRepository = DefaultBookRepository()) {
+        self.repository = repository
+        Task {
+            await loadBooks()
+        }
+    }
+    
+    // MARK: - Public API
 
-    /// Import by copying the selected EPUB into our sandbox. Avoids security-scope persistence.
+    /// Import by copying the selected EPUB into our sandbox
     func add(url: URL) {
-        Task.detached { [weak self] in
-            guard let self else { return }
-
-            let accessed = url.startAccessingSecurityScopedResource()
-            defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-
+        Task {
             do {
-                let id = UUID()
-                let dest = FileManager.appSupportBooksDir
-                    .appendingPathComponent("\(id.uuidString).epub")
-                
-                // Load metadata (title, authors, cover image) from the copied EPUB
-                guard let metadata = await EpubMetadataLoader.load(from: url) else {
-                    await MainActor.run {
-                        self.lastError = .invalidEPUB(reason: "Could not read book information")
-                    }
-                    return
-                }
-                
-                // De-dupe by book ID.
-                if await books.contains(where: { $0.canonicalID == metadata.canonicalID }) {
-                    await MainActor.run {
-                        self.lastError = .bookImportFailed(reason: "This book has already been imported")
-                    }
-                    return
-                }
-
-                // Make a copy of this book in app support dir
-                if !FileManager.default.fileExists(atPath: dest.path) {
-                    do {
-                        try FileManager.default.copyItem(at: url, to: dest)
-                    } catch {
-                        await MainActor.run {
-                            self.lastError = .fileOperationFailed(operation: "copy book file", underlying: error)
-                        }
-                        return
-                    }
-                }
-
-                // Save cover image (if any) to disk and remember its filename
-                var coverFileName: String?
-                if let coverImage = metadata.cover,
-                   let data = coverImage.jpegData(compressionQuality: 0.1) {
-                    let fileName = "\(id.uuidString)-cover.jpg"
-                    let coverURL = FileManager.appSupportBooksDir
-                        .appendingPathComponent(fileName)
-                    do {
-                        try data.write(to: coverURL, options: .atomic)
-                        coverFileName = fileName
-                    } catch {
-                        // Non-fatal: we can continue without cover
-                        Log.error("Failed to write cover image: \(error)")
-                    }
-                }
-
-                let item = BookItem(
-                    id: id,
-                    title: metadata.title,
-                    authors: metadata.authors,
-                    canonicalID: metadata.canonicalID,
-                    bookFileName: dest.lastPathComponent,
-                    coverFileName: coverFileName,
-                )
-
-                await MainActor.run {
-                    self.books.insert(item, at: 0)
-                }
+                let book = try await repository.importBook(from: url)
+                try await repository.saveBook(book)
+                await loadBooks()
+            } catch let error as AppError {
+                lastError = error
             } catch {
-                await MainActor.run {
-                    self.lastError = .bookImportFailed(reason: error.localizedDescription)
-                }
+                lastError = .bookImportFailed(reason: error.localizedDescription)
             }
         }
     }
     
     func update(_ book: BookItem) {
-        guard let idx = books.firstIndex(where: { $0.id == book.id }) else { return }
-        books[idx] = book
+        Task {
+            do {
+                try await repository.updateBook(book)
+                await loadBooks()
+            } catch let error as AppError {
+                lastError = error
+            } catch {
+                lastError = .bookImportFailed(reason: "Failed to update book")
+            }
+        }
     }
 
-    /// Delete from catalog and the sandboxed copy that was created on import.
+    /// Delete from catalog and the sandboxed copy
     func remove(_ book: BookItem) {
-        // Delete EPUB file
-        let local = localURL(for: book)
-        try? FileManager.default.removeItem(at: local)
-
-        // Delete cover file, if present
-        if let coverURL = coverURL(for: book) {
-            try? FileManager.default.removeItem(at: coverURL)
+        Task {
+            do {
+                try await repository.deleteBook(book)
+                await loadBooks()
+            } catch {
+                lastError = .fileOperationFailed(operation: "delete book", underlying: error)
+            }
         }
-
-        guard let idx = books.firstIndex(of: book) else { return }
-        books.remove(at: idx)
     }
 
     func localURL(for book: BookItem) -> URL {
-        FileManager.appSupportBooksDir.appendingPathComponent(book.bookFileName)
+        repository.localURL(for: book)
     }
 
     /// Convenience: URL for cover image on disk
     func coverURL(for book: BookItem) -> URL? {
-        guard let name = book.coverFileName else { return nil }
-        return FileManager.appSupportBooksDir.appendingPathComponent(name)
+        repository.coverURL(for: book)
     }
 
-    /// Convenience: load a UIImage for a book's cover (simple, sync)
+    /// Convenience: load a UIImage for a book's cover
     func coverImage(for book: BookItem) -> UIImage? {
-        guard let url = coverURL(for: book) else { return nil }
-        return UIImage(contentsOfFile: url.path)
+        repository.coverImage(for: book)
     }
-
-    private func persist() {
-        Defaults.setCodable(books, forKey: storageKey)
-    }
-
-    private func restore() {
-        books = Defaults.codable(
-            [BookItem].self,
-            forKey: storageKey,
-            default: []
-        )
-    }
-}
-
-// MARK: - Persistence Helpers
-enum Defaults {
-    static func setCodable<T: Codable>(_ value: T, forKey key: String) {
-        if let data = try? JSONEncoder().encode(value) {
-            UserDefaults.standard.set(data, forKey: key)
-        }
-    }
-    static func codable<T: Codable>(
-        _ type: T.Type,
-        forKey key: String,
-        default def: T
-    ) -> T {
-        guard let data = UserDefaults.standard.data(forKey: key),
-              let decoded = try? JSONDecoder().decode(type, from: data)
-        else { return def }
-        return decoded
+    
+    // MARK: - Private
+    
+    private func loadBooks() async {
+        books = await repository.loadBooks()
     }
 }
 
