@@ -1,0 +1,72 @@
+//
+//  TableOfContentsSheetView.swift
+//  WenReader
+//
+//  Created by Oliver Zhang on 2025-12-07.
+//
+
+import Foundation
+import ReadiumShared
+import SwiftUI
+
+extension RLink {
+    fileprivate var hrefOrId: String { href ?? title ?? UUID().uuidString }
+}
+
+struct TableOfContentsSheet: View {
+    let publication: Publication?
+    let onSelect: (RLink) -> Void
+
+    @State private var tocLinks: [RLink] = []
+    @State private var isLoading = true
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if isLoading {
+                    ProgressView("Loading TOC…")
+                } else if tocLinks.isEmpty {
+                    Text("No table of contents.").foregroundStyle(.secondary)
+                } else {
+                    List {
+                        ForEach(flattenTOC(tocLinks), id: \.hrefOrId) { link in
+                            Button(link.title ?? link.hrefOrId) {
+                                onSelect(link)
+                                dismiss()
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Contents")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .task { await loadTOC() }
+    }
+
+    private func loadTOC() async {
+        guard let pub = publication else { return }
+        switch await pub.tableOfContents() {
+        case .success(let links): tocLinks = links
+        case .failure: tocLinks = []
+        }
+        isLoading = false
+    }
+
+    private func flattenTOC(_ links: [RLink]) -> [RLink] {
+        var out: [RLink] = []
+        func walk(_ n: RLink) {
+            out.append(n)
+            n.children.forEach(walk)
+        }
+        links.forEach(walk)
+        return out
+    }
+}
