@@ -1,0 +1,77 @@
+//
+//  ReaderSettings.swift
+//  WenReader
+//
+//  Created by Oliver Zhang on 2025-12-08.
+//
+
+import Foundation
+
+// MARK: - Enums
+enum ReaderInteractionMode: String, CaseIterable, Codable, Identifiable {
+    case custom  // with inline pinyin/definition under magnifier
+    case system  // default iOS selection
+
+    var id: String { rawValue }
+
+    mutating func toggle() {
+        if self == .custom {
+            self = .system
+        } else {
+            self = .custom
+        }
+    }
+}
+
+enum ReaderFont: String, CaseIterable, Codable, Identifiable {
+    case notoSerifSC
+    case pingFangSC
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .notoSerifSC: return "Noto Serif SC"
+        case .pingFangSC: return "PingFang SC"
+        }
+    }
+}
+
+enum ReaderTheme: String, CaseIterable, Codable, Identifiable {
+    case light, dark, system
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .light: return "Light"
+        case .dark: return "Dark"
+        case .system: return "System"
+        }
+    }
+}
+
+enum PromptStyle: String, CaseIterable, Codable, Identifiable {
+    case quick, full
+    
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .quick: return "Concise Translation"
+        case .full: return "Detailed Explanation"
+        }
+    }
+}
+
+// MARK: - Default settings
+struct ReaderSettings: Codable, Equatable {
+    var interactionMode: ReaderInteractionMode = .custom
+    var font: ReaderFont = .notoSerifSC
+    var fontSize: Double = 1.2
+    var lineHeight: Double = 1.5
+    var margins: Double = 1.0
+    var justify: Bool = true
+    var theme: ReaderTheme = .system
+    var promptStyle: PromptStyle = .quick
+}

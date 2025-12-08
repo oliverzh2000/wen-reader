@@ -11,13 +11,6 @@ import ReadiumStreamer
 import UIKit
 
 
-struct BookMetadata {
-    var title: String?
-    var authors: [String]
-    var canonicalID: String?
-    var cover: UIImage?
-}
-
 enum EpubMetadataLoader {
     static func load(from url: URL) async -> BookMetadata? {
         // Instantiate the required components.

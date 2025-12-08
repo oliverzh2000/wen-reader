@@ -10,16 +10,6 @@ import ReadiumNavigator
 import UIKit
 import WebKit
 
-// Payload returned from JS side.
-struct WordHit: Equatable {
-    let block: String
-    let sentence: String
-    let run: String
-    let word: String
-    let hitPoint: CGPoint
-    let rects: [CGRect]
-}
-
 /// Owns: selection toggle JS, long-press gesture, and reapplication on chapter changes.
 @MainActor
 final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
