@@ -40,6 +40,9 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
 
     // Haptics used on magnifier start and user dragging to new word.
     private let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
+    
+    // Task cancellation for async operations
+    private var currentLongPressTask: Task<Void, Never>?
 
     override init() {
         // Load required injection files from bundle
@@ -116,7 +119,7 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
         let js = """
             (function() {
               try {
-                if (window.CR && window.CR.clearHighlight()) {
+                if (window.CR && window.CR.clearHighlight) {
                   return window.CR.clearHighlight();
                 }
               } catch (e) {
@@ -161,9 +164,7 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
 
     private func injectHelpersIntoAllVisibleWebViews() {
         // 1) Inject CSS (once per doc) by appending a <style> tag
-        // Use JSON encoding for proper escaping
-        guard let cssData = try? JSONEncoder().encode(injectCSS),
-              let cssJSON = String(data: cssData, encoding: .utf8) else {
+        guard let cssJSON = jsonEncode(injectCSS) else {
             Log.error("Failed to encode CSS for injection")
             return
         }
@@ -185,9 +186,7 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
             """
 
         // 2) Inject the helper JS namespace (window.CR)
-        // Use JSON encoding for proper escaping
-        guard let jsData = try? JSONEncoder().encode(injectJS),
-              let jsJSON = String(data: jsData, encoding: .utf8) else {
+        guard let jsJSON = jsonEncode(injectJS) else {
             Log.error("Failed to encode JS for injection")
             return
         }
@@ -297,59 +296,90 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
     private func findDescendantWKWebViews() -> [WKWebView] {
         guard let root = navigatorVC?.view else { return [] }
         var result: [WKWebView] = []
-        func walk(_ v: UIView) {
-            if let wkv = v as? WKWebView { result.append(wkv) }
-            for sub in v.subviews { walk(sub) }
+        traverseViewHierarchy(root) { view in
+            if let webView = view as? WKWebView {
+                result.append(webView)
+            }
         }
-        walk(root)
         return result
     }
 
-    // toggle scrolling for any UIScrollView inside the navigator
+    // Toggle scrolling for any UIScrollView inside the navigator
     private func setScrollingEnabled(_ enabled: Bool) {
         guard let root = navigatorVC?.view else { return }
-        func walk(_ v: UIView) {
-            if let scroll = v as? UIScrollView {
-                scroll.isScrollEnabled = enabled
+        traverseViewHierarchy(root) { view in
+            if let scrollView = view as? UIScrollView {
+                scrollView.isScrollEnabled = enabled
             }
-            for sub in v.subviews { walk(sub) }
         }
-        walk(root)
+    }
+    
+    // Generic view hierarchy traversal
+    private func traverseViewHierarchy(_ root: UIView, visitor: (UIView) -> Void) {
+        visitor(root)
+        for subview in root.subviews {
+            traverseViewHierarchy(subview, visitor: visitor)
+        }
+    }
+    
+    // Convert point from navigator root coords to webView coords
+    private func convertToWebViewCoordinates(_ point: CGPoint, webView: WKWebView) -> CGPoint {
+        guard let root = navigatorVC?.view else { return point }
+        return root.convert(point, to: webView)
+    }
+    
+    // JSON encode string for safe JavaScript injection
+    private func jsonEncode(_ string: String) -> String? {
+        guard let data = try? JSONEncoder().encode(string),
+              let json = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return json
     }
 
-    func handleLongPress(at rootPoint: CGPoint) {
-        fetchContext(at: rootPoint) { [weak self] block, sentence, run in
-            guard let self else { return }
-            Task {
-                if run == "" {
-                    self.currentWordHit = nil
-                    // Don't send this nil hit to engine yet - that happens at finger lift.
-                    return
-                }
-                let segmenter = CedictSegmentationService(
-                    dict: CedictSqlService.shared,
-                    maxWordLength: ReaderConstants.Segmentation.maxWordLength
-                )
-                let segmentLengths = await segmenter.segment(run).map {
-                    $0.count
-                }
-                self.segmentAndHighlight(at: rootPoint, lengths: segmentLengths)
-                { [weak self] word, rects in
-                    guard let self else { return }
-                    if rects != self.currentWordHit?.rects {
-                        let wordHit = WordHit(
-                            block: block,
-                            sentence: sentence,
-                            run: run,
-                            word: word,
-                            hitPoint: rootPoint,
-                            rects: rects
-                        )
-                        self.currentWordHit = wordHit
-                        if self.currentWordHit != nil {
-                            // Don't send this nil hit to engine yet - that happens at finger lift.
-                            self.onWordHit?(self.currentWordHit)
-                            self.impactFeedback.impactOccurred()
+    private func handleLongPress(at rootPoint: CGPoint) {
+        // Cancel any previous long press operation
+        currentLongPressTask?.cancel()
+        
+        currentLongPressTask = Task {
+            guard !Task.isCancelled else { return }
+            
+            fetchContext(at: rootPoint) { [weak self] block, sentence, run in
+                guard let self else { return }
+                
+                Task {
+                    if run == "" {
+                        self.currentWordHit = nil
+                        return
+                    }
+                    
+                    let segmenter = CedictSegmentationService(
+                        dict: CedictSqlService.shared,
+                        maxWordLength: ReaderConstants.Segmentation.maxWordLength
+                    )
+                    let segmentLengths = await segmenter.segment(run).map {
+                        $0.count
+                    }
+                    
+                    guard !Task.isCancelled else { return }
+                    
+                    self.segmentAndHighlight(at: rootPoint, lengths: segmentLengths)
+                    { [weak self] word, rects in
+                        guard let self else { return }
+                        if rects != self.currentWordHit?.rects {
+                            let wordHit = WordHit(
+                                block: block,
+                                sentence: sentence,
+                                run: run,
+                                word: word,
+                                hitPoint: rootPoint,
+                                rects: rects
+                            )
+                            self.currentWordHit = wordHit
+                            if self.currentWordHit != nil {
+                                self.onWordHit?(self.currentWordHit)
+                                self.impactFeedback.impactOccurred()
+                            }
                         }
                     }
                 }
@@ -357,18 +387,16 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
         }
     }
 
-    func fetchContext(
+    private func fetchContext(
         at rootPoint: CGPoint,
         completion:
             @escaping (_ block: String, _ sentence: String, _ run: String) ->
             Void
     ) {
-        guard let root = navigatorVC?.view else {
-            return
-        }
-
+        var completionCalled = false
+        
         for webView in findDescendantWKWebViews() {
-            let local = root.convert(rootPoint, to: webView)
+            let local = convertToWebViewCoordinates(rootPoint, webView: webView)
 
             let js = """
                 (function() {
@@ -385,6 +413,7 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
 
             webView.evaluateJavaScript(js) { result, error in
                 guard
+                    !completionCalled,
                     error == nil,
                     let dict = result as? [String: Any],
                     let block = dict["block"] as? String,
@@ -393,20 +422,21 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
                 else {
                     return
                 }
+                completionCalled = true
                 completion(block, sentence, run)
             }
         }
     }
 
-    func segmentAndHighlight(
+    private func segmentAndHighlight(
         at rootPoint: CGPoint,
         lengths: [Int],
         completion: @escaping (_ word: String, _ rects: [CGRect]) -> Void
     ) {
-        guard let root = navigatorVC?.view else { return }
-
+        var completionCalled = false
+        
         for webView in findDescendantWKWebViews() {
-            let local = root.convert(rootPoint, to: webView)
+            let local = convertToWebViewCoordinates(rootPoint, webView: webView)
 
             // Serialize lengths to JS array
             let lengthsJSON: String
@@ -438,6 +468,7 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
 
             webView.evaluateJavaScript(js) { result, error in
                 guard
+                    !completionCalled,
                     error == nil,
                     let dict = result as? [String: Any],
                     let word = dict["word"] as? String,
@@ -457,6 +488,7 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
                     }
                     return CGRect(x: x, y: y, width: w, height: h)
                 }
+                completionCalled = true
                 completion(word, rects)
             }
         }
