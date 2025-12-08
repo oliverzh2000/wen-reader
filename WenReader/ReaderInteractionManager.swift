@@ -23,8 +23,8 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
     private var currentMode: Mode = .systemSelection
     private var isMagnifierActive = false
 
-    // Cache JS/CSS payloads from bundle
-    // TODO: make local to functions.
+    // Cache JS/CSS payloads from bundle once at initialization for reuse across multiple injections
+    // These are loaded once and reused to avoid repeated disk I/O on every chapter change
     private let injectJS: String
     private let injectCSS: String
 
@@ -138,26 +138,18 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
     private func applyMode(_ mode: Mode) {
         switch mode {
         case .systemSelection:
-            enableSystemSelection()
+            setSystemSelection(enabled: true)
             longPress?.isEnabled = false
         case .customMagnifier:
-            disableSystemSelection()
+            setSystemSelection(enabled: false)
             longPress?.isEnabled = true
         }
     }
 
-    private func enableSystemSelection() {
+    private func setSystemSelection(enabled: Bool) {
         evalInAllWebViews(
             """
-              try { window.CR && window.CR.setSelectable(true); } catch(e) { /* noop */ }
-            """
-        )
-    }
-
-    private func disableSystemSelection() {
-        evalInAllWebViews(
-            """
-              try { window.CR && window.CR.setSelectable(false); } catch(e) { /* noop */ }
+              try { window.CR && window.CR.setSelectable(\(enabled ? "true" : "false")); } catch(e) { /* noop */ }
             """
         )
     }
