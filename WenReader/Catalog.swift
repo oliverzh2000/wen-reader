@@ -108,10 +108,18 @@ extension FileManager {
             in: .userDomainMask
         )[0]
         let dir = base.appendingPathComponent("Books", isDirectory: true)
-        try? FileManager.default.createDirectory(
-            at: dir,
-            withIntermediateDirectories: true
-        )
+        
+        // Create directory if it doesn't exist
+        do {
+            try FileManager.default.createDirectory(
+                at: dir,
+                withIntermediateDirectories: true
+            )
+        } catch {
+            // Log but don't crash - directory may already exist
+            Log.error("Failed to create Books directory at \(dir.path): \(error)")
+        }
+        
         return dir
     }
 }

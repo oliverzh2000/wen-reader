@@ -42,18 +42,33 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
     private let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
 
     override init() {
-        // Load the files once (fail-quiet with empty string if missing)
-        self.injectJS =
-            (try? ReaderInteractionManager.loadBundledText(
+        // Load required injection files from bundle
+        do {
+            self.injectJS = try ReaderInteractionManager.loadBundledText(
                 named: "reader_inject",
                 ext: "js"
-            )) ?? ""
-        self.injectCSS =
-            (try? ReaderInteractionManager.loadBundledText(
+            )
+        } catch {
+            Log.error("CRITICAL: Failed to load reader_inject.js: \(error)")
+            self.injectJS = ""
+        }
+        
+        do {
+            self.injectCSS = try ReaderInteractionManager.loadBundledText(
                 named: "reader_inject",
                 ext: "css"
-            )) ?? ""
+            )
+        } catch {
+            Log.error("CRITICAL: Failed to load reader_inject.css: \(error)")
+            self.injectCSS = ""
+        }
+        
         super.init()
+        
+        // Validate that critical resources were loaded
+        if injectJS.isEmpty || injectCSS.isEmpty {
+            Log.error("CRITICAL: Reader interaction manager initialized without required injection files. Custom segmentation/dictionary will not function.")
+        }
     }
 
     static private func loadBundledText(named: String, ext: String) throws
@@ -394,10 +409,19 @@ final class ReaderInteractionManager: NSObject, UIGestureRecognizerDelegate {
             let local = root.convert(rootPoint, to: webView)
 
             // Serialize lengths to JS array
-            let lengthsJSON =
-                (try? JSONSerialization.data(withJSONObject: lengths)).flatMap {
-                    String(data: $0, encoding: .utf8)
-                } ?? "[]"
+            let lengthsJSON: String
+            do {
+                let data = try JSONSerialization.data(withJSONObject: lengths)
+                if let jsonString = String(data: data, encoding: .utf8) {
+                    lengthsJSON = jsonString
+                } else {
+                    Log.error("Failed to convert lengths data to UTF-8 string")
+                    lengthsJSON = "[]"
+                }
+            } catch {
+                Log.error("Failed to serialize segmentation lengths to JSON: \(error)")
+                lengthsJSON = "[]"
+            }
 
             let js = """
                 (function() {

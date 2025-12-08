@@ -11,8 +11,11 @@ import UIKit
 // MARK: - Persistence Helper
 private enum Defaults {
     static func setCodable<T: Codable>(_ value: T, forKey key: String) {
-        if let data = try? JSONEncoder().encode(value) {
+        do {
+            let data = try JSONEncoder().encode(value)
             UserDefaults.standard.set(data, forKey: key)
+        } catch {
+            Log.error("Failed to encode data for key '\(key)': \(error)")
         }
     }
     
@@ -21,10 +24,16 @@ private enum Defaults {
         forKey key: String,
         default def: T
     ) -> T {
-        guard let data = UserDefaults.standard.data(forKey: key),
-              let decoded = try? JSONDecoder().decode(type, from: data)
-        else { return def }
-        return decoded
+        guard let data = UserDefaults.standard.data(forKey: key) else {
+            return def
+        }
+        
+        do {
+            return try JSONDecoder().decode(type, from: data)
+        } catch {
+            Log.error("Failed to decode \(type) for key '\(key)': \(error)")
+            return def
+        }
     }
 }
 
@@ -98,11 +107,21 @@ final class DefaultBookRepository: BookRepository {
     func deleteBook(_ book: BookItem) async throws {
         // Delete EPUB file
         let epubURL = localURL(for: book)
-        try? fileManager.removeItem(at: epubURL)
+        do {
+            try fileManager.removeItem(at: epubURL)
+        } catch {
+            Log.error("Failed to delete EPUB file for '\(book.title ?? "Unknown")': \(error)")
+            // Non-fatal: continue with catalog removal even if file deletion fails
+        }
         
         // Delete cover file if present
         if let coverFileURL = coverURL(for: book) {
-            try? fileManager.removeItem(at: coverFileURL)
+            do {
+                try fileManager.removeItem(at: coverFileURL)
+            } catch {
+                Log.error("Failed to delete cover file for '\(book.title ?? "Unknown")': \(error)")
+                // Non-fatal: continue with catalog removal
+            }
         }
         
         // Remove from storage
@@ -117,6 +136,9 @@ final class DefaultBookRepository: BookRepository {
         
         // Load metadata from EPUB (non-fatal - use defaults if it fails)
         let metadata = await EpubMetadataLoader.load(from: url)
+        if metadata == nil {
+            Log.info("Failed to load metadata from '\(url.lastPathComponent)', using fallback values")
+        }
         
         // Use filename as fallback title if metadata loading failed
         let fallbackTitle = url.deletingPathExtension().lastPathComponent
