@@ -10,7 +10,6 @@ import Foundation
 
 /// Centralized constants for the reader feature
 enum ReaderConstants {
-    
     /// Dictionary popover display settings
     enum Dictionary {
         /// Maximum height for dictionary popover
@@ -45,5 +44,15 @@ enum ReaderConstants {
         
         /// Maximum cache size for word lookup results
         static let maxCacheSize: Int = 1000
+    }
+    
+    /// Image file settings
+    enum Image {
+        /// JPEG compression quality for book covers.
+        static let coverCompressionQuality: CGFloat = 0.1
+    }
+    
+    enum Book {
+        static let maxTitleLength = 200
     }
 }

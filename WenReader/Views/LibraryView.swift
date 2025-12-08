@@ -51,7 +51,7 @@ struct LibraryView: View {
                                 Button("Save") {
                                     let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
                                     // Validate: must not be empty and must be reasonable length
-                                    guard !trimmed.isEmpty, trimmed.count <= 200 else {
+                                    guard !trimmed.isEmpty, trimmed.count <= ReaderConstants.Book.maxTitleLength else {
                                         renamingBook = nil
                                         return
                                     }

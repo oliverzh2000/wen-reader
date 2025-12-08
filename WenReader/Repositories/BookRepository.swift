@@ -142,7 +142,7 @@ final class DefaultBookRepository: BookRepository {
         // Save cover image if available
         var coverFileName: String?
         if let coverImage = metadata?.cover,
-           let data = coverImage.jpegData(compressionQuality: 0.1) {
+           let data = coverImage.jpegData(compressionQuality: ReaderConstants.Image.coverCompressionQuality) {
             let fileName = "\(id.uuidString)-cover.jpg"
             let coverFileURL = FileManager.appSupportBooksDir
                 .appendingPathComponent(fileName)
