@@ -8,35 +8,6 @@
 import Foundation
 import UIKit
 
-// MARK: - Persistence Helper
-private enum Defaults {
-    static func setCodable<T: Codable>(_ value: T, forKey key: String) {
-        do {
-            let data = try JSONEncoder().encode(value)
-            UserDefaults.standard.set(data, forKey: key)
-        } catch {
-            Log.error("Failed to encode data for key '\(key)': \(error)")
-        }
-    }
-    
-    static func codable<T: Codable>(
-        _ type: T.Type,
-        forKey key: String,
-        default def: T
-    ) -> T {
-        guard let data = UserDefaults.standard.data(forKey: key) else {
-            return def
-        }
-        
-        do {
-            return try JSONDecoder().decode(type, from: data)
-        } catch {
-            Log.error("Failed to decode \(type) for key '\(key)': \(error)")
-            return def
-        }
-    }
-}
-
 // MARK: - Protocol
 
 /// Protocol defining book data operations
@@ -74,7 +45,7 @@ final class DefaultBookRepository: BookRepository {
     // MARK: - Public API
     
     func loadBooks() async -> [BookItem] {
-        return Defaults.codable(
+        return UserDefaults.standard.codable(
             [BookItem].self,
             forKey: storageKey,
             default: []
@@ -90,7 +61,7 @@ final class DefaultBookRepository: BookRepository {
         }
         
         books.insert(book, at: 0)
-        Defaults.setCodable(books, forKey: storageKey)
+        UserDefaults.standard.setCodable(books, forKey: storageKey)
     }
     
     func updateBook(_ book: BookItem) async throws {
@@ -101,7 +72,7 @@ final class DefaultBookRepository: BookRepository {
         }
         
         books[index] = book
-        Defaults.setCodable(books, forKey: storageKey)
+        UserDefaults.standard.setCodable(books, forKey: storageKey)
     }
     
     func deleteBook(_ book: BookItem) async throws {
@@ -127,7 +98,7 @@ final class DefaultBookRepository: BookRepository {
         // Remove from storage
         var books = await loadBooks()
         books.removeAll { $0.id == book.id }
-        Defaults.setCodable(books, forKey: storageKey)
+        UserDefaults.standard.setCodable(books, forKey: storageKey)
     }
     
     func importBook(from url: URL) async throws -> BookItem {

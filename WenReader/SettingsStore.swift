@@ -18,18 +18,14 @@ final class SettingsStore: ObservableObject {
     private let key = "reader.settings"
 
     init() {
-        if let data = UserDefaults.standard.data(forKey: key),
-            let s = try? JSONDecoder().decode(ReaderSettings.self, from: data)
-        {
-            self.settings = s
-        } else {
-            self.settings = ReaderSettings()
-        }
+        self.settings = UserDefaults.standard.codable(
+            ReaderSettings.self,
+            forKey: key,
+            default: ReaderSettings()
+        )
     }
 
     private func save() {
-        if let data = try? JSONEncoder().encode(settings) {
-            UserDefaults.standard.set(data, forKey: key)
-        }
+        UserDefaults.standard.setCodable(settings, forKey: key)
     }
 }
