@@ -88,7 +88,9 @@ struct ReaderView: View {
                         },
                         onLinkTap: { headword in
                             // Use either trad or simp; the SQL WHERE matches both.
-                            engine.pushDictionary(for: headword.simplified)
+                            Task {
+                                await engine.pushDictionary(for: headword.simplified)
+                            }
                         }
                     )
                     .padding([.leading, .trailing, .bottom])

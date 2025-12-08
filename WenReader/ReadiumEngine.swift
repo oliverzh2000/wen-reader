@@ -54,12 +54,11 @@ final class ReadiumEngine: ObservableObject {
     
     // MARK: - Dictionary Operations
     
-    func updateDictionaryResult(for word: String?) {
-        Task {
-            await dictionaryManager.lookup(word)
-            if word == nil {
-                interactionManager.clearHighlight()
-            }
+    /// Look up a word in the dictionary
+    func updateDictionaryResult(for word: String?) async {
+        await dictionaryManager.lookup(word)
+        if word == nil {
+            interactionManager.clearHighlight()
         }
     }
     
@@ -68,10 +67,9 @@ final class ReadiumEngine: ObservableObject {
         interactionManager.clearHighlight()
     }
     
-    func pushDictionary(for word: String) {
-        Task {
-            await dictionaryManager.push(word)
-        }
+    /// Push a new word onto the dictionary stack (for cross-references)
+    func pushDictionary(for word: String) async {
+        await dictionaryManager.push(word)
     }
     
     func popDictionary() {
@@ -105,7 +103,10 @@ final class ReadiumEngine: ObservableObject {
             interactionManager.onWordHit = { [weak self] hit in
                 guard let self else { return }
                 self.currentWordHit = hit
-                self.updateDictionaryResult(for: hit?.word)
+                // Task wrapper at sync/async boundary (closure callback)
+                Task {
+                    await self.updateDictionaryResult(for: hit?.word)
+                }
             }
             
         case .failure(let error):
