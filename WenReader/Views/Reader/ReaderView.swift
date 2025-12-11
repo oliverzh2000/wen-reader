@@ -58,18 +58,32 @@ struct ReaderView: View {
     let book: BookItem
 
     @StateObject private var engine = ReadiumEngine()
+    
+    // Observe dictionary manager changes explicitly so SwiftUI re-renders on dictionary updates
+    @ObservedObject private var dictionaryManager: ReaderDictionaryManager
 
     @State private var showChrome = false
     @State private var showChapters = false
     @State private var showSettings = false
     @State private var didSync = false
+    
+    init(book: BookItem) {
+        self.book = book
+        
+        // Initialize engine first
+        let engine = ReadiumEngine()
+        _engine = StateObject(wrappedValue: engine)
+        
+        // Then observe its dictionary manager
+        _dictionaryManager = ObservedObject(wrappedValue: engine.dictionaryManager)
+    }
 
     var body: some View {
         ZStack {
             ReaderSurface(engine: engine)
 
             GeometryReader { proxy in
-                if let hit = engine.currentWordHit, let result = engine.currentDictResult {
+                if let hit = engine.currentWordHit, let result = dictionaryManager.currentResult {
                     // If the word is in the bottom half of the screen, show popover on top, else bottom
                     let screenHeight = proxy.size.height
                     let hitY =
@@ -113,7 +127,7 @@ struct ReaderView: View {
                 response: ReaderConstants.Dictionary.animationResponse,
                 dampingFraction: ReaderConstants.Dictionary.animationDamping
             ),
-            value: engine.currentDictResult != nil
+            value: engine.dictionaryManager.currentResult != nil
         )
         .navigationTitle(book.title ?? "")
         .navigationBarTitleDisplayMode(.inline)
@@ -147,7 +161,7 @@ struct ReaderView: View {
                 engine.installInputObservers(
                     onSingleTap: {
                         // Single tap will hide dict if present, otherwise toggle chrome.
-                        if engine.currentDictResult != nil {
+                        if engine.dictionaryManager.currentResult != nil {
                             engine.closeDictionaryAndClearHighlight()
                         } else {
                             // Toggle chrome on any single tap

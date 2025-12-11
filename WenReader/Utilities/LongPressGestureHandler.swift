@@ -50,6 +50,11 @@ final class LongPressGestureHandler: NSObject, UIGestureRecognizerDelegate {
         longPress?.isEnabled = enabled
     }
     
+    /// Reset cached word hit state (call when dictionary is closed)
+    func resetWordHitCache() {
+        currentWordHit = nil
+    }
+    
     // MARK: - Gesture Handling
     
     @objc private func handleLongPress(_ gr: UILongPressGestureRecognizer) {

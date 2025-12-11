@@ -9,10 +9,11 @@ import Foundation
 import Combine
 
 /// Manages dictionary lookups and navigation stack
+/// This manager owns dictionary lookup state (results, navigation stack)
+/// WordHit state is owned by ReadiumEngine (from user interaction)
 @MainActor
 final class ReaderDictionaryManager: ObservableObject {
     @Published private(set) var currentResult: DictionaryResult?
-    @Published var currentWordHit: WordHit?
     
     private var stack: [DictionaryResult] = []
     private let service: DictionaryService

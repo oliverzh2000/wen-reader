@@ -12,39 +12,30 @@ import SwiftUI
 import WebKit
 
 /// Orchestrates reader components and manages overall reading experience
+/// 
+/// State Ownership:
+/// - Engine owns: publication, navigator, location, interaction state (currentWordHit)
+/// - DictionaryManager owns: dictionary results and navigation stack (exposed via dictionaryManager)
+/// - Views observe both Engine and Engine.dictionaryManager for their respective states
 @MainActor
 final class ReadiumEngine: ObservableObject {
-    // MARK: - Published State
+    // MARK: - Published State (owned by Engine)
     @Published var publication: Publication?
     @Published var navigatorVC: EPUBNavigatorViewController?
     @Published var openError: AppError?
     @Published var isOpening: Bool = false
     @Published var currentLocation: Locator?
     @Published var currentWordHit: WordHit?
-    @Published var currentDictResult: DictionaryResult?
     
     // MARK: - Managers
     private let publicationManager = ReadiumPublicationManager()
     private let locationManager = ReaderLocationManager()
     private let settingsManager = ReaderSettingsManager()
-    private let dictionaryManager = ReaderDictionaryManager()
     private let interactionManager = ReaderInteractionManager()
     
-    // MARK: - Initialization
-    
-    init() {
-        setupDictionaryObservers()
-    }
-    
-    private func setupDictionaryObservers() {
-        // Forward dictionary manager's published values to our own @Published properties
-        // This ensures SwiftUI gets notified when dictionary state changes
-        dictionaryManager.$currentResult
-            .assign(to: &$currentDictResult)
-        
-        dictionaryManager.$currentWordHit
-            .assign(to: &$currentWordHit)
-    }
+    /// Dictionary manager exposed for views to observe dictionary state directly
+    /// Views can observe this via @ObservedObject or access via engine.dictionaryManager
+    let dictionaryManager = ReaderDictionaryManager()
     
     // MARK: - Computed Properties
     

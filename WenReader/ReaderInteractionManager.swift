@@ -86,6 +86,9 @@ final class ReaderInteractionManager {
         guard let root = navigatorVC?.view else { return }
         let webViews = ViewHierarchyHelper.findWebViews(in: root)
         injector.clearHighlight(in: webViews)
+        
+        // Reset gesture handler cache so same word can be looked up again
+        gestureHandler.resetWordHitCache()
     }
     
     /// Returns true if a long-press ended very recently and this tap should be suppressed
