@@ -1,23 +1,17 @@
 //
-//  Catalog.swift
-//  ChineseReader
+//  CatalogStore.swift
+//  WenReader
 //
 //  Created by Oliver Zhang on 2025-11-08.
+//  Refactored on 2025-12-10.
 //
 
 import Combine
 import Foundation
 import SwiftUI
-import UniformTypeIdentifiers
 import UIKit
 
-// MARK: - Global UI State
-@MainActor
-final class UiState: ObservableObject {
-    @Published var hideStatusBar = false
-}
-
-// MARK: - Catalog Store (UI-facing; delegates to repository for data operations)
+/// Catalog Store (UI-facing; delegates to repository for data operations)
 @MainActor
 final class CatalogStore: ObservableObject {
     @Published private(set) var books: [BookItem] = []
@@ -93,37 +87,4 @@ final class CatalogStore: ObservableObject {
     private func loadBooks() async {
         books = await repository.loadBooks()
     }
-}
-
-// MARK: - Utilities
-enum Log {
-    nonisolated static func info(_ msg: String) { print("I:  \(msg)") }
-    nonisolated static func error(_ msg: String) { print("E: \(msg)") }
-}
-
-extension FileManager {
-    nonisolated static var appSupportBooksDir: URL {
-        let base = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        )[0]
-        let dir = base.appendingPathComponent("Books", isDirectory: true)
-        
-        // Create directory if it doesn't exist
-        do {
-            try FileManager.default.createDirectory(
-                at: dir,
-                withIntermediateDirectories: true
-            )
-        } catch {
-            // Log but don't crash - directory may already exist
-            Log.error("Failed to create Books directory at \(dir.path): \(error)")
-        }
-        
-        return dir
-    }
-}
-
-extension UTType {
-    static let epub = UTType(importedAs: "org.idpf.epub-container")
 }
