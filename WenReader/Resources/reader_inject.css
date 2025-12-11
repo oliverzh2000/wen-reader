@@ -14,6 +14,8 @@ html.cr-nonselectable * {
 
 /* Highlighted segmented word */
 .cr-word-highlight {
-  background-color: rgba(120, 170, 255, 0.4);
+  /* This is also injected manually via
+     wordSpan.style.setProperty("background-color", "rgba(61, 158, 255, 0.3)", "important"); */
+  background-color: rgba(61, 158, 255, 0.3);
   border-radius: 4px;
 }

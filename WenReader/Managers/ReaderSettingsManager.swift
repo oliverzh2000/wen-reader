@@ -37,6 +37,10 @@ final class ReaderSettingsManager {
         applyTypography(settings, to: editor)
         
         navigator.submitPreferences(editor.preferences)
+        
+        // CRITICAL: Re-inject custom CSS after Readium applies its theme
+        // submitPreferences() may reload styles, wiping out our injected CSS
+        interactionManager.reapplyAfterNavigation()
     }
     
     // MARK: - Private Helpers

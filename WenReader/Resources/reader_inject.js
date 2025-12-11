@@ -276,6 +276,7 @@
        const last = window.CR._lastWordEl;
        if (last) {
          last.classList.remove("cr-word-highlight");
+         last.style.removeProperty("background-color");
          window.CR._lastWordEl = null;
        }
      },
@@ -347,6 +348,8 @@
        if (!wordSpan) return;
 
        wordSpan.classList.add("cr-word-highlight");
+       // Force inline styles to override any Readium theme styles
+       wordSpan.style.setProperty("background-color", "rgba(61, 158, 255, 0.3)", "important");
        window.CR._lastWordEl = wordSpan;
          
          // Prepare rects as return value.
