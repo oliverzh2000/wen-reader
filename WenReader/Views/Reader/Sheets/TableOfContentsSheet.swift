@@ -21,6 +21,7 @@ struct TableOfContentsSheet: View {
     @State private var isLoading = true
 
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject var settingsStore: SettingsStore
 
     var body: some View {
         NavigationStack {
@@ -47,8 +48,21 @@ struct TableOfContentsSheet: View {
                     Button("Done") { dismiss() }
                 }
             }
+            .preferredColorScheme(preferredColorScheme)
         }
         .task { await loadTOC() }
+    }
+    
+    // Compute color scheme from settings to update sheet immediately
+    private var preferredColorScheme: ColorScheme? {
+        switch settingsStore.settings.theme {
+        case .light:
+            return .light
+        case .dark:
+            return .dark
+        case .system:
+            return nil  // nil = follow system appearance
+        }
     }
 
     private func loadTOC() async {

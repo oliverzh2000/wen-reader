@@ -102,6 +102,19 @@ struct SettingsSheet: View {
                     Button("Done") { dismiss() }
                 }
             }
+            .preferredColorScheme(preferredColorScheme)
+        }
+    }
+    
+    // Compute color scheme from settings to update sheet immediately
+    private var preferredColorScheme: ColorScheme? {
+        switch settingsStore.settings.theme {
+        case .light:
+            return .light
+        case .dark:
+            return .dark
+        case .system:
+            return nil  // nil = follow system appearance
         }
     }
 }
