@@ -219,7 +219,23 @@ final class CedictSqlService: DictionaryService {
         db = handle
     }
 
-    // MARK: - Parsing helpers
+    // MARK: - Sense Parsing
+    
+    /// Parses raw sense string from CEDICT into structured Sense objects.
+    ///
+    /// CEDICT Format:
+    /// Senses are slash-delimited: "sense1/sense2/sense3"
+    /// Each sense contains semicolon-delimited glosses: "gloss1; gloss2; gloss3"
+    ///
+    /// Special Handling:
+    /// - Classifier senses prefixed with "CL:" (e.g., "CL:個|个[ge4]")
+    /// - Glosses may contain embedded Chinese with pinyin
+    ///
+    /// Example input: "to like; to love/CL:個|个[ge4]"
+    /// Result: 2 senses, first with 2 glosses, second is classifier
+    ///
+    /// - Parameter raw: Raw sense string from CEDICT database
+    /// - Returns: Array of structured Sense objects with parsed glosses
     private static func parseSenses(from raw: String) -> [Sense] {
         // raw string = "sense1/sense2/sense3", where each sense = "gloss1; gloss2"
         let senseStrings =
@@ -229,12 +245,14 @@ final class CedictSqlService: DictionaryService {
             .filter { !$0.isEmpty }
 
         return senseStrings.map { senseStr in
-            // Detect and strip "CL:" prefix for classifier glosses.
+            // Classifier Detection
+            // CEDICT marks classifiers with "CL:" prefix
+            // Example: "CL:個|个[ge4]" means this word is measured with 個/个
             var isClassifier = false
             var strippedSenseStr = senseStr
             if senseStr.hasPrefix("CL:") {
                 isClassifier = true
-                strippedSenseStr = String(senseStr.dropFirst(3))  // strip "CL:" prefix.
+                strippedSenseStr = String(senseStr.dropFirst(3))  // Remove "CL:" prefix
             }
 
             let glossStrings =
@@ -251,6 +269,31 @@ final class CedictSqlService: DictionaryService {
         }
     }
 
+    /// Parses a single gloss string into structured fragments.
+    ///
+    /// Fragment Types:
+    /// 1. Plain text: Regular English definition text
+    /// 2. Linked headwords: Chinese words with optional trad|simp variants
+    /// 3. Pinyin: Pronunciation guide in brackets
+    ///
+    /// CEDICT Embedded Format Examples:
+    /// - `父親|父亲[fu4 qin5]` → Link("父親", "父亲") + Pinyin(["fù", "qīn"])
+    /// - `see 東西|东西[dong1 xi5]` → Text("see ") + Link + Pinyin
+    /// - `[dong1 xi5]` → Pinyin only (no headword)
+    ///
+    /// Regex Pattern Explanation:
+    /// ```
+    /// Pattern A: ([\p{Han}]+)(?:\|([\p{Han}]+))?\[([A-Za-z0-9 ]+)\]
+    ///            └─ head1 ─┘  └──── head2? ────┘ └─── pinyin ───┘
+    ///            Matches: 東西|东西[dong1 xi5] or 我[wo3]
+    ///
+    /// Pattern B: \[([A-Za-z0-9 ]+)\]
+    ///            └──── pinyin ────┘
+    ///            Matches: [fu4 qin5] (bare pinyin, no Chinese)
+    /// ```
+    ///
+    /// - Parameter raw: Raw gloss string from CEDICT
+    /// - Returns: Gloss with structured fragments (text, links, pinyin)
     private static func parseGloss(_ raw: String) -> Gloss {
         // Trim outer whitespace once
         var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -258,12 +301,10 @@ final class CedictSqlService: DictionaryService {
             return Gloss(fragments: [])
         }
 
-        // 2) Regex:
-        //   a) ([\p{Han}]+)(?:\|([\p{Han}]+))?\[([A-Za-z0-9 ]+)\]
-        //        ^head1           ^head2?             ^pinyinWithHead
-        //
-        //   b) \[([A-Za-z0-9 ]+)\]
-        //           ^barePinyin
+        // Regex Pattern for Embedded Chinese + Pinyin
+        // Matches two cases:
+        //   a) Chinese headword(s) + pinyin: 東西|东西[dong1 xi5]
+        //   b) Bare pinyin only: [dong1 xi5]
         let pattern =
             #"([\p{Han}]+)(?:\|([\p{Han}]+))?\[([A-Za-z0-9 ]+)\]|\[([A-Za-z0-9 ]+)\]"#
 
@@ -297,14 +338,16 @@ final class CedictSqlService: DictionaryService {
                 continue
             }
 
-            // Text before this match → plain text fragment (normalized)
+            // Plain text before match
+            // Any text between matches becomes a text fragment
             if currentLocation < range.lowerBound {
                 appendNormalizedTextFragment(
                     text[currentLocation..<range.lowerBound]
                 )
             }
 
-            // Case a): headword + pinyin, e.g. 件[jian4] or 樁|桩[zhuang1]
+            // Case A: Headword + Pinyin
+            // Examples: 件[jian4], 樁|桩[zhuang1]
             if let head1Range = Range(match.range(at: 1), in: text),
                 let pinyinWithHeadRange = Range(match.range(at: 3), in: text)
             {
@@ -312,19 +355,22 @@ final class CedictSqlService: DictionaryService {
                 var trad = head1
                 var simp = head1
 
+                // Check for traditional|simplified variant
                 if let head2Range = Range(match.range(at: 2), in: text) {
                     let head2 = String(text[head2Range])
-                    // CC-CEDICT convention is trad|simp
+                    // CC-CEDICT Convention: First is traditional, second is simplified
                     trad = head1
                     simp = head2
                 }
 
+                // Create clickable link for cross-reference
                 let headword = LinkedHeadword(
                     traditional: trad,
                     simplified: simp
                 )
                 fragments.append(.link(headword))
 
+                // Convert numbered pinyin (dong1 xi5) to accented (dōng xī)
                 let numberedPinyin = String(text[pinyinWithHeadRange])
                 let accented: [String] =
                     numberedPinyin
@@ -335,7 +381,8 @@ final class CedictSqlService: DictionaryService {
                     fragments.append(.accentedPinyin(accented))
                 }
             }
-            // Case b): bare pinyin, e.g. [fu4 qin5]
+            // Case B: Bare Pinyin
+            // Example: [fu4 qin5] with no Chinese characters
             else if let barePinyinRange = Range(match.range(at: 4), in: text) {
                 let numberedPinyin = String(text[barePinyinRange])
                 let accented: [String] =
@@ -351,12 +398,13 @@ final class CedictSqlService: DictionaryService {
             currentLocation = range.upperBound
         }
 
-        // Trailing text after the last match
+        // Trailing text after last match
         if currentLocation < text.endIndex {
             appendNormalizedTextFragment(text[currentLocation..<text.endIndex])
         }
 
-        // Fallback: if nothing recognized, treat entire thing as text
+        // Fallback for unparseable glosses
+        // If no patterns matched, treat entire string as plain text
         if fragments.isEmpty {
             fragments = [.text(text)]
         }
@@ -364,65 +412,122 @@ final class CedictSqlService: DictionaryService {
         return Gloss(fragments: fragments)
     }
 
-    // MARK: - Pinyin conversion
+    // MARK: - Pinyin Tone Conversion
+    
+    /// Converts numbered pinyin to accented pinyin with proper Unicode tone marks.
+    ///
+    /// # Pinyin Tone System
+    ///
+    /// Chinese has 4 tones plus a neutral tone (5), indicated by numbers in CEDICT:
+    /// 1. First tone (¯): High level - mā (mother)
+    /// 2. Second tone (´): Rising - má (hemp)
+    /// 3. Third tone (ˇ): Falling-rising - mǎ (horse)
+    /// 4. Fourth tone (`): Falling - mà (scold)
+    /// 5. Neutral tone: No mark - ma (question particle)
+    ///
+    /// # Tone Mark Placement Rules
+    ///
+    /// The tone mark goes on the main vowel, following these priority rules:
+    ///
+    /// 1. 'a' always wins if present: bai → bǎi (third tone on 'a')
+    /// 2. 'e' is second if no 'a': mei → měi (third tone on 'e')
+    /// 3. 'ou' special case: tone goes on 'o': gou → gǒu (third tone on 'o')
+    /// 4. Otherwise last vowel: gui → guǐ (third tone on 'i', the last vowel)
+    ///
+    /// # Character Normalization
+    ///
+    /// CEDICT uses various representations for ü:
+    /// - `u:` → `ü` (e.g., `lu:4` → `lǜ`)
+    /// - `v` → `ü` (e.g., `lv4` → `lǜ`)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// "ni3"     → "nǐ"      (tone 3 on 'i', last vowel)
+    /// "hao3"    → "hǎo"     (tone 3 on 'a', highest priority)
+    /// "mei3"    → "měi"     (tone 3 on 'e', no 'a' present)
+    /// "gou3"    → "gǒu"     (tone 3 on 'o', special 'ou' case)
+    /// "lu:4"    → "lǜ"      (tone 4 on normalized 'ü')
+    /// "ma5"     → "ma"      (neutral tone, no mark)
+    /// ```
+    ///
+    /// - Parameter numbered: Pinyin with trailing tone number (1-5)
+    /// - Returns: Pinyin with Unicode tone mark, or original if malformed
     private static func numberedToAccentedPinyin(_ numbered: String) -> String {
-        // 1. Extract tone number (1–5)
+        // Step 1: Extract and validate tone number
+        // Tone must be 1-5 and at end of string
         guard let toneChar = numbered.last,
             let tone = Int(String(toneChar)),
             tone >= 1 && tone <= 5
         else {
-            return numbered  // already accented or malformed
+            // Not numbered pinyin (already accented or invalid format)
+            return numbered
         }
 
         let base = String(numbered.dropLast())
 
-        // 2. Convert u:, v → ü normalization
+        // Step 2: Normalize ü character representations
+        // CEDICT uses both 'u:' and 'v' to represent ü
+        // Examples: nu:3 → nǚ, nv3 → nǚ
         let normalized =
             base
             .replacingOccurrences(of: "u:", with: "ü")
             .replacingOccurrences(of: "v", with: "ü")
 
-        // 3. Vowel priority list for tone placement
+        // Step 3: Determine which vowel receives the tone mark
+        // Chinese pinyin tone placement follows strict rules
         let vowels = ["a", "e", "o", "u", "i", "ü"]
-
-        // 4. Which vowel gets the mark?
         var targetIndex: String.Index? = nil
 
-        // Rule: a → e → ou → last vowel
+        // Priority Rule 1: 'a' always gets the mark
+        // Example: bai3 → bǎi (not baǐ)
         if let i = normalized.firstIndex(of: "a") {
             targetIndex = i
-        } else if let i = normalized.firstIndex(of: "e") {
+        }
+        // Priority Rule 2: 'e' is second priority
+        // Example: mei3 → měi (not meǐ)
+        else if let i = normalized.firstIndex(of: "e") {
             targetIndex = i
-        } else if normalized.contains("ou"),
+        }
+        // Priority Rule 3: 'ou' diphthong gets mark on 'o'
+        // Example: gou3 → gǒu (not goǔ)
+        else if normalized.contains("ou"),
             let i = normalized.firstIndex(of: "o")
         {
             targetIndex = i
-        } else {
-            // last vowel
+        }
+        // Priority Rule 4: Otherwise, last vowel wins
+        // Example: gui3 → guǐ ('i' is last vowel)
+        else {
             targetIndex = normalized.lastIndex(where: {
                 vowels.contains(String($0))
             })
         }
 
+        // Validate we found a vowel
         guard let idx = targetIndex else {
-            return normalized  // no vowel? return unchanged
+            // No vowels found (malformed pinyin)
+            return normalized
         }
 
         let vowel = normalized[idx]
 
-        // 5. Mapping vowel + tone → accented vowel
+        // Step 4: Map vowel + tone to Unicode character
+        // Each vowel has 5 forms: [tone1, tone2, tone3, tone4, neutral]
+        // Using Unicode combining marks for tone accents
         let toneMarks: [Character: [Character]] = [
-            "a": ["ā", "á", "ǎ", "à", "a"],
-            "e": ["ē", "é", "ě", "è", "e"],
-            "i": ["ī", "í", "ǐ", "ì", "i"],
-            "o": ["ō", "ó", "ǒ", "ò", "o"],
-            "u": ["ū", "ú", "ǔ", "ù", "u"],
-            "ü": ["ǖ", "ǘ", "ǚ", "ǜ", "ü"],
+            "a": ["ā", "á", "ǎ", "à", "a"],  // U+0101, U+00E1, U+01CE, U+00E0
+            "e": ["ē", "é", "ě", "è", "e"],  // U+0113, U+00E9, U+011B, U+00E8
+            "i": ["ī", "í", "ǐ", "ì", "i"],  // U+012B, U+00ED, U+01D0, U+00EC
+            "o": ["ō", "ó", "ǒ", "ò", "o"],  // U+014D, U+00F3, U+01D2, U+00F2
+            "u": ["ū", "ú", "ǔ", "ù", "u"],  // U+016B, U+00FA, U+01D4, U+00F9
+            "ü": ["ǖ", "ǘ", "ǚ", "ǜ", "ü"],  // U+01D6, U+01D8, U+01DA, U+01DC
         ]
 
+        // Get accented character (tone 5 = neutral = no mark)
         let accented = toneMarks[vowel]?[tone - 1] ?? vowel
 
-        // 6. Replace vowel with accented vowel
+        // Step 5: Replace original vowel with accented version
         var result = normalized
         result.replaceSubrange(idx...idx, with: String(accented))
 
