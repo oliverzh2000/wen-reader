@@ -1,9 +1,5 @@
-//
-//  LongPressGestureHandler.swift
-//  WenReader
-//
-//  Created by refactoring on 2025-12-10.
-//
+// Copyright 2025 Oliver Zhang
+// Licensed under the MIT License
 
 import Foundation
 import UIKit

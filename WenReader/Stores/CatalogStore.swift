@@ -1,10 +1,5 @@
-//
-//  CatalogStore.swift
-//  WenReader
-//
-//  Created by Oliver Zhang on 2025-11-08.
-//  Refactored on 2025-12-10.
-//
+// Copyright 2025 Oliver Zhang
+// Licensed under the MIT License
 
 import Combine
 import Foundation

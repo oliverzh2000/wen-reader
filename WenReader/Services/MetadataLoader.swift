@@ -1,16 +1,10 @@
-//
-//  MetadataLoader.swift
-//  ChineseReader
-//
-//  Created by Oliver Zhang on 2025-11-30.
-//
+// Copyright 2025 Oliver Zhang
+// Licensed under the MIT License
 
 import Foundation
 import ReadiumShared
 import ReadiumStreamer
 import UIKit
-
-
 enum EpubMetadataLoader {
     static func load(from url: URL) async -> BookMetadata? {
         // Instantiate the required components.

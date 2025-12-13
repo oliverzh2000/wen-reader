@@ -1,9 +1,5 @@
-//
-//  AppError.swift
-//  WenReader
-//
-//  Created by code review improvements
-//
+// Copyright 2025 Oliver Zhang
+// Licensed under the MIT License
 
 import Foundation
 

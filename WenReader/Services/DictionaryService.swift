@@ -1,9 +1,5 @@
-//
-//  DictionaryService.swift
-//  ChineseReader
-//
-//  Created by Oliver Zhang on 2025-11-16.
-//
+// Copyright 2025 Oliver Zhang
+// Licensed under the MIT License
 
 import Foundation
 import SQLite3

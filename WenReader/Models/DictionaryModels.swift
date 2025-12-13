@@ -1,9 +1,5 @@
-//
-//  DictionaryModels.swift
-//  WenReader
-//
-//  Created by Oliver Zhang on 2025-12-08.
-//
+// Copyright 2025 Oliver Zhang
+// Licensed under the MIT License
 
 /// All dictionary entries returned for a lookup.
 /// Typically: all possible readings (pronunciations) and meanings for a given written form.

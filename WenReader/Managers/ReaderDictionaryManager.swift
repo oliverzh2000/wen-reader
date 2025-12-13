@@ -1,9 +1,5 @@
-//
-//  ReaderDictionaryManager.swift
-//  WenReader
-//
-//  Created by architectural refactoring
-//
+// Copyright 2025 Oliver Zhang
+// Licensed under the MIT License
 
 import Foundation
 import Combine

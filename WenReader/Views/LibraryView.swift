@@ -1,9 +1,5 @@
-//
-//  LibraryUI.swift
-//  ChineseReader
-//
-//  Created by Oliver Zhang on 2025-11-08.
-//
+// Copyright 2025 Oliver Zhang
+// Licensed under the MIT License
 
 import SwiftUI
 import UniformTypeIdentifiers

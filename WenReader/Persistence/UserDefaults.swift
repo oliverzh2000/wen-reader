@@ -1,9 +1,5 @@
-//
-//  UserDefaults+Codable.swift
-//  WenReader
-//
-//  Created by code quality improvements
-//
+// Copyright 2025 Oliver Zhang
+// Licensed under the MIT License
 
 import Foundation
 

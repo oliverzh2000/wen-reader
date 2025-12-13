@@ -1,9 +1,5 @@
-//
-//  BookMetadata.swift
-//  WenReader
-//
-//  Created by Oliver Zhang on 2025-12-08.
-//
+// Copyright 2025 Oliver Zhang
+// Licensed under the MIT License
 
 import UIKit
 

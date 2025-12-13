@@ -1,9 +1,5 @@
-//
-//  TextExport.swift
-//  WenReader
-//
-//  Created by Oliver Zhang on 2025-12-07.
-//
+// Copyright 2025 Oliver Zhang
+// Licensed under the MIT License
 
 import Foundation
 import UIKit
