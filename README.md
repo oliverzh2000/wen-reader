@@ -2,6 +2,10 @@
 
 ## A fast, privacy-friendly Chinese EPUB reader with instant dictionary pop-ups.
 
+[![Download on the App Store](https://developer.apple.com/assets/elements/badges/download-on-the-app-store.svg)](
+https://apps.apple.com/app/wen-reader/id6755988730
+)
+
 Built out of a genuine love for learning Chinese, Wen Reader gives intermediate readers a clean, modern way to read native-level books while getting quick CEDICT definitions with a simple long-press. 
 
 Import your own EPUBs, read with great typography, and stay fully offline.
