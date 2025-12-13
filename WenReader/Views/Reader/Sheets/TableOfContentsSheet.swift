@@ -9,10 +9,6 @@ import Foundation
 import ReadiumShared
 import SwiftUI
 
-extension RLink {
-    fileprivate var hrefOrId: String { href ?? title ?? UUID().uuidString }
-}
-
 struct TableOfContentsSheet: View {
     let publication: Publication?
     let onSelect: (RLink) -> Void
@@ -32,8 +28,8 @@ struct TableOfContentsSheet: View {
                     Text("No table of contents.").foregroundStyle(.secondary)
                 } else {
                     List {
-                        ForEach(flattenTOC(tocLinks), id: \.hrefOrId) { link in
-                            Button(link.title ?? link.hrefOrId) {
+                        ForEach(flattenTOC(tocLinks), id: \.href) { link in
+                            Button(link.title ?? link.href) {
                                 onSelect(link)
                                 dismiss()
                             }

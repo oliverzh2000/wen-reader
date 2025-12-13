@@ -59,7 +59,7 @@ final class CedictSqlService: DictionaryService {
                 }
                 
                 self.openDatabaseIfNeeded()
-                guard let db = self.db else {
+                guard self.db != nil else {
                     continuation.resume(returning: nil)
                     return
                 }
@@ -296,7 +296,7 @@ final class CedictSqlService: DictionaryService {
     /// - Returns: Gloss with structured fragments (text, links, pinyin)
     private static func parseGloss(_ raw: String) -> Gloss {
         // Trim outer whitespace once
-        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if text.isEmpty {
             return Gloss(fragments: [])
         }
