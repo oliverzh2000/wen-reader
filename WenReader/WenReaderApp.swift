@@ -1,9 +1,5 @@
-//
-//  WenReaderApp.swift
-//  ChineseReader
-//
-//  Created by Oliver Zhang on 2025-11-08.
-//
+// Copyright 2025 Oliver Zhang
+// Licensed under the MIT License
 
 import SwiftUI
 
@@ -37,6 +33,19 @@ struct WenReaderApp: App {
             .environmentObject(globalUiState)
             .environmentObject(settingsStore)
             .statusBarHidden(globalUiState.hideStatusBar)
+            .preferredColorScheme(preferredColorScheme)
+        }
+    }
+    
+    // Compute color scheme from settings
+    private var preferredColorScheme: ColorScheme? {
+        switch settingsStore.settings.theme {
+        case .light:
+            return .light
+        case .dark:
+            return .dark
+        case .system:
+            return nil  // nil = follow system appearance
         }
     }
 }

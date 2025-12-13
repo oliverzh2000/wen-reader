@@ -1,9 +1,5 @@
-//
-//  LibraryUI.swift
-//  ChineseReader
-//
-//  Created by Oliver Zhang on 2025-11-08.
-//
+// Copyright 2025 Oliver Zhang
+// Licensed under the MIT License
 
 import SwiftUI
 import UniformTypeIdentifiers
@@ -11,7 +7,6 @@ import UniformTypeIdentifiers
 struct LibraryView: View {
     @EnvironmentObject private var catalog: CatalogStore
     @State private var showImporter = false
-    @State private var importError: String?
     
     @State private var renamingBook: BookItem?
     @State private var newTitle: String = ""
@@ -50,8 +45,15 @@ struct LibraryView: View {
                                 TextField("Title", text: $newTitle)
 
                                 Button("Save") {
+                                    let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                                    // Validate: must not be empty and must be reasonable length
+                                    guard !trimmed.isEmpty, trimmed.count <= ReaderConstants.Book.maxTitleLength else {
+                                        renamingBook = nil
+                                        return
+                                    }
+                                    
                                     if var book = renamingBook {
-                                        book.title = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                                        book.title = trimmed
                                         catalog.update(book)
                                     }
                                     renamingBook = nil
@@ -90,20 +92,10 @@ struct LibraryView: View {
                 guard let first = urls.first else { return }
                 withAnimation { catalog.add(url: first) }
             case .failure(let err):
-                importError = err.localizedDescription
+                catalog.lastError = .bookImportFailed(reason: err.localizedDescription)
             }
         }
-        .alert(
-            "Import failed",
-            isPresented: Binding(
-                get: { importError != nil },
-                set: { _ in importError = nil }
-            )
-        ) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(importError ?? "Unknown error")
-        }
+        .errorAlert(title: "Import Error", error: $catalog.lastError)
         .scrollBounceBehavior(.basedOnSize)
     }
 }
