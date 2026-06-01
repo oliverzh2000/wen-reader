@@ -16,8 +16,13 @@ final class LongPressGestureHandler: NSObject, UIGestureRecognizerDelegate {
     private var longPress: UILongPressGestureRecognizer?
     private var isMagnifierActive = false
     private var longPressEndTime: CFTimeInterval = 0
-    private var currentWordHit: WordHit?
     private var currentLongPressTask: Task<Void, Never>?
+    
+    private var currentWordHit: WordHit?
+    /// Current run's segmentation state.
+    private var currentRunText: String?
+    private var currentContext: String?
+    private var currentSegments: [String]?
     
     private let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
     
@@ -49,6 +54,9 @@ final class LongPressGestureHandler: NSObject, UIGestureRecognizerDelegate {
     /// Reset cached word hit state (call when dictionary is closed)
     func resetWordHitCache() {
         currentWordHit = nil
+        currentRunText = nil
+        currentContext = nil
+        currentSegments = nil
     }
     
     // MARK: - Gesture Handling
@@ -69,11 +77,13 @@ final class LongPressGestureHandler: NSObject, UIGestureRecognizerDelegate {
         switch gr.state {
         case .began:
             isMagnifierActive = true
-            onScrollingStateChange?(false) // Disable scrolling
-            handleLongPress(at: rootPoint)
+            onScrollingStateChange?(false)
+            // Check if this new long-press started on the currently highlighted word.
+            // If so, we'll sub-split it. This flag is only set here, not on .changed.
+            processLongPress(at: rootPoint, isBegan: true)
             
         case .changed:
-            handleLongPress(at: rootPoint)
+            processLongPress(at: rootPoint, isBegan: false)
             
         case .ended, .cancelled, .failed:
             if isMagnifierActive {
@@ -119,8 +129,7 @@ final class LongPressGestureHandler: NSObject, UIGestureRecognizerDelegate {
     
     // MARK: - Word Hit Processing
     
-    private func handleLongPress(at rootPoint: CGPoint) {
-        // Cancel any previous operation
+    private func processLongPress(at rootPoint: CGPoint, isBegan: Bool) {
         currentLongPressTask?.cancel()
         
         currentLongPressTask = Task {
@@ -130,50 +139,136 @@ final class LongPressGestureHandler: NSObject, UIGestureRecognizerDelegate {
             let webViews = ViewHierarchyHelper.findWebViews(in: root)
             
             fetchContext(at: rootPoint, from: webViews) { [weak self] block, sentence, run in
-                guard let self else { return }
+                guard let self, !run.isEmpty else {
+                    self?.currentWordHit = nil
+                    return
+                }
                 
                 Task {
-                    if run == "" {
-                        self.currentWordHit = nil
-                        return
+                    let context = block
+                    
+                    // Determine if we need to (re)segment this run
+                    if self.currentRunText != run {
+                        let segments = await SegmentationServiceFactory.shared.segment(run: run, sentence: context)
+                        self.currentRunText = run
+                        self.currentContext = context
+                        self.currentSegments = segments
                     }
                     
-                    // Segment the text
-                    let segmenter = CedictSegmentationService(
-                        dict: CedictSqlService.shared,
-                        maxWordLength: ReaderConstants.Segmentation.maxWordLength
-                    )
-                    let segmentLengths = await segmenter.segment(run).map { $0.count }
+                    guard let segments = self.currentSegments else { return }
+                    let segmentLengths = segments.map { $0.count }
                     
                     guard !Task.isCancelled else { return }
                     
-                    // Highlight and get word
+                    // Hit-test to find which word the finger is on
                     self.segmentAndHighlight(
                         at: rootPoint,
                         lengths: segmentLengths,
                         in: webViews
                     ) { [weak self] word, rects in
                         guard let self else { return }
+                        guard SpanScorerSegmentationService.isLookupable(word) else { return }
                         
-                        // Only notify if the word changed
-                        if rects != self.currentWordHit?.rects {
-                            let wordHit = WordHit(
-                                block: block,
-                                sentence: sentence,
-                                run: run,
-                                word: word,
-                                hitPoint: rootPoint,
-                                rects: rects
-                            )
-                            self.currentWordHit = wordHit
-                            if self.currentWordHit != nil {
-                                self.onWordHit?(self.currentWordHit)
-                                self.impactFeedback.impactOccurred()
-                            }
+                        let isSameWord = (word == self.currentWordHit?.word && rects == self.currentWordHit?.rects)
+                        
+                        if isSameWord && !isBegan {
+                            // Finger dragging within the same word — do nothing
+                            return
                         }
+                        
+                        if isSameWord && isBegan {
+                            // New long-press started on the already-highlighted word → sub-split
+                            self.performSubSplit(
+                                word: word,
+                                run: run,
+                                context: context,
+                                rootPoint: rootPoint,
+                                webViews: webViews,
+                                block: block,
+                                sentence: sentence
+                            )
+                            return
+                        }
+                        
+                        // Different word (or first press) — highlight it
+                        let wordHit = WordHit(
+                            block: block,
+                            sentence: sentence,
+                            run: run,
+                            word: word,
+                            hitPoint: rootPoint,
+                            rects: rects
+                        )
+                        self.currentWordHit = wordHit
+                        self.onWordHit?(wordHit)
+                        self.impactFeedback.impactOccurred()
                     }
                 }
             }
+        }
+    }
+    
+    // MARK: - Sub-splitting
+    
+    private func performSubSplit(
+        word: String,
+        run: String,
+        context: String,
+        rootPoint: CGPoint,
+        webViews: [WKWebView],
+        block: String,
+        sentence: String
+    ) {
+        guard word.count > 1,
+              let spanScorer = SegmentationServiceFactory.spanScorer,
+              var segments = currentSegments else { return }
+        
+        // Find the word's offset in the run
+        var offset = 0
+        var wordIndex: Int?
+        for (i, seg) in segments.enumerated() {
+            if seg == word {
+                wordIndex = i
+                break
+            }
+            offset += seg.count
+        }
+        guard let idx = wordIndex else { return }
+        
+        guard let subSegments = spanScorer.resegment(
+            originalRun: run,
+            sentence: context,
+            wordToSplit: word,
+            wordStartInRun: offset
+        ), subSegments.count > 1 || subSegments.first != word else {
+            return // Can't split further
+        }
+        
+        // Replace the word with its sub-segments
+        segments.replaceSubrange(idx...idx, with: subSegments)
+        currentSegments = segments
+        
+        // Re-highlight with new segmentation
+        let segmentLengths = segments.map { $0.count }
+        segmentAndHighlight(
+            at: rootPoint,
+            lengths: segmentLengths,
+            in: webViews
+        ) { [weak self] newWord, rects in
+            guard let self else { return }
+            guard SpanScorerSegmentationService.isLookupable(newWord) else { return }
+            
+            let wordHit = WordHit(
+                block: block,
+                sentence: sentence,
+                run: run,
+                word: newWord,
+                hitPoint: rootPoint,
+                rects: rects
+            )
+            self.currentWordHit = wordHit
+            self.onWordHit?(wordHit)
+            self.impactFeedback.impactOccurred()
         }
     }
     

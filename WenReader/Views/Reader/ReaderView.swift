@@ -111,11 +111,36 @@ struct ReaderView: View {
                         maxHeight: .infinity,
                         alignment: alignment
                     )
-                    .transition(
-                        .opacity
-                        )
+                    .transition(.opacity)
                     .zIndex(1)
                 }
+            }
+
+
+        }
+        .overlay(alignment: .bottom) {
+            if engine.currentWordHit != nil, dictionaryManager.currentResult != nil {
+                VStack {
+                    Spacer()
+                    WordAdjustmentBar(
+                        onPrev: { /* TODO */ },
+                        onShrink: { /* TODO */ },
+                        onGrow: { /* TODO */ },
+                        onNext: { /* TODO */ }
+                    )
+                }
+                .transition(.opacity)
+            }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            // Reading progress percentage in bottom safe area
+            if let progression = engine.currentProgression {
+                Text(String(format: "%.1f%%", progression * 100))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 4)
+                    .padding(.bottom, 2)
             }
         }
         .animation(
@@ -174,6 +199,8 @@ struct ReaderView: View {
         .sheet(isPresented: $showChapters) {
             TableOfContentsSheet(
                 publication: engine.publication,
+                book: book,
+                coverImage: catalog.coverImage(for: book),
                 onSelect: {
                     link in
                     Task {
@@ -218,7 +245,7 @@ struct ReaderChromeModifier: SwiftUI.ViewModifier {
                         }
                         showChapters = true
                     } label: {
-                        HStack {
+                        HStack(spacing: 0) {
                             Text(title).lineLimit(1)
                                 .font(.body)
                                 .foregroundStyle(.secondary)

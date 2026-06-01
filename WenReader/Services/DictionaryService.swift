@@ -6,10 +6,18 @@ import SQLite3
 
 protocol DictionaryService {
     /// Return the full dictionary entry (all senses) for a word, if present.
-    func lookup(_ word: String) async -> DictionaryResult?
+    /// When `sentence` is provided and WSD is available, senses are sorted by contextual relevance.
+    func lookup(_ word: String, sentence: String?) async -> DictionaryResult?
 
-    /// Return true if `word` exists in CEDICT (as trad or simp), false otherwise.
+    /// Return true if `word` exists in the dictionary (as trad or simp), false otherwise.
     func contains(_ word: String) async -> Bool
+}
+
+/// Convenience extension preserving the original single-argument lookup signature.
+extension DictionaryService {
+    func lookup(_ word: String) async -> DictionaryResult? {
+        await lookup(word, sentence: nil)
+    }
 }
 
 private let SQLITE_TRANSIENT = unsafeBitCast(
@@ -25,6 +33,9 @@ final class CedictSqlService: DictionaryService {
     // Adjust to match how you bundle the DB
     private let dbFileName = "cedict"  // cedict.sqlite -> "cedict"
     private let dbFileExtension = "sqlite"
+
+    /// Optional WSD service for sense ranking. Set after init when WSD model is available.
+    var wsdService: WSDService?
 
     private init() {
         openDatabaseIfNeeded()
@@ -46,7 +57,7 @@ final class CedictSqlService: DictionaryService {
         openDatabaseIfNeeded()
     }
 
-    func lookup(_ word: String) async -> DictionaryResult? {
+    func lookup(_ word: String, sentence: String?) async -> DictionaryResult? {
         return await withCheckedContinuation { continuation in
             dbQueue.async { [weak self] in
                 guard let self else {
@@ -61,9 +72,16 @@ final class CedictSqlService: DictionaryService {
                 }
 
                 let sql = """
-                    SELECT trad, simp, pinyin, senses_raw
-                    FROM cedict_entries
-                    WHERE trad = ?1 OR simp = ?1;
+                    SELECT e.id, e.traditional, e.simplified, e.pinyin,
+                           sc.id as cluster_id, sc.is_trivial, sc.embedding,
+                           s.id as sense_id, s.is_classifier,
+                           g.gloss_text
+                    FROM entries e
+                    JOIN sense_clusters sc ON sc.entry_id = e.id
+                    JOIN senses s ON s.sense_cluster_id = sc.id
+                    JOIN glosses g ON g.sense_id = s.id
+                    WHERE e.simplified = ?1 OR e.traditional = ?1
+                    ORDER BY e.id, sc.id, s.rowid, g.rowid;
                     """
 
                 var stmt: OpaquePointer?
@@ -77,41 +95,144 @@ final class CedictSqlService: DictionaryService {
                     }
                 }
 
+                // Collect flat rows and group into Entry → Cluster → Sense → Gloss hierarchy
                 var entries: [Entry] = []
+                var clusterEmbeddings: [(clusterId: Int, isTrivial: Bool, embedding: Data?)] = []
+                // Maps each sense (by flat index across all entries) to its cluster ID
+                var senseClusterIds: [Int] = []
+
+                // Grouping state
+                var currentEntryId: Int64 = -1
+                var currentClusterId: Int64 = -1
+                var currentSenseId: Int64 = -1
+                var currentTrad = ""
+                var currentSimp = ""
+                var currentPinyin = ""
+                var currentSenses: [Sense] = []
+                var currentGlosses: [Gloss] = []
+                var currentIsClassifier = false
+                var currentSenseClusterId: Int = 0
+
+                func flushGlossesIntoSense() {
+                    guard !currentGlosses.isEmpty else { return }
+                    currentSenses.append(Sense(glosses: currentGlosses, isClassifier: currentIsClassifier))
+                    currentGlosses = []
+                }
+
+                func flushSensesIntoEntry() {
+                    flushGlossesIntoSense()
+                    guard !currentSenses.isEmpty else { return }
+                    let accentedPinyin: [String] =
+                        currentPinyin
+                        .split(separator: " ")
+                        .map { Self.numberedToAccentedPinyin(String($0)) }
+                    entries.append(Entry(
+                        traditional: currentTrad,
+                        simplified: currentSimp,
+                        accentedPinyin: accentedPinyin,
+                        senses: currentSenses
+                    ))
+                    currentSenses = []
+                }
+
                 while sqlite3_step(stmt) == SQLITE_ROW {
+                    let entryId = sqlite3_column_int64(stmt, 0)
+
                     guard
-                        let tradC = sqlite3_column_text(stmt, 0),
-                        let simpC = sqlite3_column_text(stmt, 1),
-                        let pinyinC = sqlite3_column_text(stmt, 2),
-                        let sensesC = sqlite3_column_text(stmt, 3)
-                    else {
+                        let tradC = sqlite3_column_text(stmt, 1),
+                        let simpC = sqlite3_column_text(stmt, 2),
+                        let pinyinC = sqlite3_column_text(stmt, 3)
+                    else { continue }
+
+                    let clusterId = sqlite3_column_int64(stmt, 4)
+                    let isTrivial = sqlite3_column_int(stmt, 5) != 0
+
+                    // Read cluster embedding BLOB (nullable)
+                    var embeddingData: Data? = nil
+                    if sqlite3_column_type(stmt, 6) == SQLITE_BLOB,
+                       let blobPtr = sqlite3_column_blob(stmt, 6) {
+                        let blobLen = sqlite3_column_bytes(stmt, 6)
+                        embeddingData = Data(bytes: blobPtr, count: Int(blobLen))
+                    }
+
+                    let senseId = sqlite3_column_int64(stmt, 7)
+                    let isClassifier = sqlite3_column_int(stmt, 8) != 0
+
+                    let glossText: String
+                    if let glossC = sqlite3_column_text(stmt, 9) {
+                        glossText = String(cString: glossC)
+                    } else {
                         continue
                     }
 
-                    let trad = String(cString: tradC)
-                    let simp = String(cString: simpC)
-                    let pinyinRaw = String(cString: pinyinC)
-                    let sensesRaw = String(cString: sensesC)
+                    // Detect entry boundary
+                    if entryId != currentEntryId {
+                        flushSensesIntoEntry()
+                        currentEntryId = entryId
+                        currentTrad = String(cString: tradC)
+                        currentSimp = String(cString: simpC)
+                        currentPinyin = String(cString: pinyinC)
+                        currentClusterId = -1
+                        currentSenseId = -1
+                    }
 
-                    let accentedPinyin: [String] =
-                        pinyinRaw
-                        .split(separator: " ")
-                        .map { Self.numberedToAccentedPinyin(String($0)) }
+                    // Detect cluster boundary — track embedding per cluster
+                    if clusterId != currentClusterId {
+                        currentClusterId = clusterId
+                        clusterEmbeddings.append((
+                            clusterId: Int(clusterId),
+                            isTrivial: isTrivial,
+                            embedding: embeddingData
+                        ))
+                    }
 
-                    let senses = Self.parseSenses(from: sensesRaw)
+                    // Detect sense boundary
+                    if senseId != currentSenseId {
+                        flushGlossesIntoSense()
+                        currentSenseId = senseId
+                        currentIsClassifier = isClassifier
+                        currentSenseClusterId = Int(clusterId)
+                        senseClusterIds.append(currentSenseClusterId)
+                    }
 
-                    entries.append(
-                        Entry(
-                            traditional: trad,
-                            simplified: simp,
-                            accentedPinyin: accentedPinyin,
-                            senses: senses
-                        )
-                    )
+                    // Parse gloss text through existing parseGloss() for inline references
+                    let gloss = Self.parseGloss(glossText)
+                    currentGlosses.append(gloss)
                 }
 
-                let result = entries.isEmpty ? nil : DictionaryResult(entries: entries)
-                continuation.resume(returning: result)
+                // Flush final entry
+                flushSensesIntoEntry()
+
+                guard !entries.isEmpty else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+
+                // Capture values for async WSD call
+                let capturedEntries = entries
+                let capturedEmbeddings = clusterEmbeddings
+                let capturedSenseClusterIds = senseClusterIds
+                let capturedSentence = sentence
+                let capturedWsd = self.wsdService
+
+                // Skip WSD if there's only one non-trivial sense cluster (nothing to disambiguate)
+                let nonTrivialCount = capturedEmbeddings.filter { !$0.isTrivial }.count
+
+                // If sentence is provided and WSD is available, rank senses
+                if let sentence = capturedSentence, !sentence.isEmpty, let wsd = capturedWsd, nonTrivialCount > 1 {
+                    Task {
+                        let sorted = await wsd.rankSenses(
+                            word: word,
+                            sentenceContext: sentence,
+                            entries: capturedEntries,
+                            clusterEmbeddings: capturedEmbeddings,
+                            senseClusterIds: capturedSenseClusterIds
+                        )
+                        continuation.resume(returning: DictionaryResult(entries: sorted))
+                    }
+                } else {
+                    continuation.resume(returning: DictionaryResult(entries: capturedEntries))
+                }
             }
         }
     }
@@ -132,8 +253,8 @@ final class CedictSqlService: DictionaryService {
 
                 let sql = """
                     SELECT 1
-                    FROM cedict_entries
-                    WHERE trad = ?1 OR simp = ?1
+                    FROM entries
+                    WHERE simplified = ?1 OR traditional = ?1
                     LIMIT 1;
                     """
 
@@ -215,55 +336,7 @@ final class CedictSqlService: DictionaryService {
         db = handle
     }
 
-    // MARK: - Sense Parsing
-    
-    /// Parses raw sense string from CEDICT into structured Sense objects.
-    ///
-    /// CEDICT Format:
-    /// Senses are slash-delimited: "sense1/sense2/sense3"
-    /// Each sense contains semicolon-delimited glosses: "gloss1; gloss2; gloss3"
-    ///
-    /// Special Handling:
-    /// - Classifier senses prefixed with "CL:" (e.g., "CL:個|个[ge4]")
-    /// - Glosses may contain embedded Chinese with pinyin
-    ///
-    /// Example input: "to like; to love/CL:個|个[ge4]"
-    /// Result: 2 senses, first with 2 glosses, second is classifier
-    ///
-    /// - Parameter raw: Raw sense string from CEDICT database
-    /// - Returns: Array of structured Sense objects with parsed glosses
-    private static func parseSenses(from raw: String) -> [Sense] {
-        // raw string = "sense1/sense2/sense3", where each sense = "gloss1; gloss2"
-        let senseStrings =
-            raw
-            .split(separator: "/")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-
-        return senseStrings.map { senseStr in
-            // Classifier Detection
-            // CEDICT marks classifiers with "CL:" prefix
-            // Example: "CL:個|个[ge4]" means this word is measured with 個/个
-            var isClassifier = false
-            var strippedSenseStr = senseStr
-            if senseStr.hasPrefix("CL:") {
-                isClassifier = true
-                strippedSenseStr = String(senseStr.dropFirst(3))  // Remove "CL:" prefix
-            }
-
-            let glossStrings =
-                strippedSenseStr
-                .split(separator: ";")
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-
-            let glosses: [Gloss] = glossStrings.map { glossStr in
-                parseGloss(String(glossStr))
-            }
-
-            return Sense(glosses: glosses, isClassifier: isClassifier)
-        }
-    }
+    // MARK: - Gloss Parsing
 
     /// Parses a single gloss string into structured fragments.
     ///
@@ -290,7 +363,7 @@ final class CedictSqlService: DictionaryService {
     ///
     /// - Parameter raw: Raw gloss string from CEDICT
     /// - Returns: Gloss with structured fragments (text, links, pinyin)
-    private static func parseGloss(_ raw: String) -> Gloss {
+    static func parseGloss(_ raw: String) -> Gloss {
         // Trim outer whitespace once
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if text.isEmpty {
@@ -449,7 +522,7 @@ final class CedictSqlService: DictionaryService {
     ///
     /// - Parameter numbered: Pinyin with trailing tone number (1-5)
     /// - Returns: Pinyin with Unicode tone mark, or original if malformed
-    private static func numberedToAccentedPinyin(_ numbered: String) -> String {
+    static func numberedToAccentedPinyin(_ numbered: String) -> String {
         // Step 1: Extract and validate tone number
         // Tone must be 1-5 and at end of string
         guard let toneChar = numbered.last,

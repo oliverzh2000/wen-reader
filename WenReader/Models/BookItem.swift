@@ -13,4 +13,6 @@ struct BookItem: Identifiable, Codable, Hashable {
     var bookFileName: String
     /// File name of the saved cover image inside sandbox
     var coverFileName: String?
+    /// Total number of Readium positions (stable page-equivalent count)
+    var pageCount: Int?
 }

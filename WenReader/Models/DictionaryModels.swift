@@ -20,6 +20,8 @@ struct Sense {
     // Each gloss can be made up of plain text and clickable links.
     let glosses: [Gloss]
     let isClassifier: Bool
+    /// True when WSD ranked this sense in the top cluster for its entry.
+    var isPrimary: Bool = true
 }
 
 /// A single gloss, made up of fragments.

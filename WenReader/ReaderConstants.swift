@@ -40,6 +40,15 @@ enum ReaderConstants {
         
         /// Maximum cache size for word lookup results
         static let maxCacheSize: Int = 1000
+
+        /// Maximum cache size for CoreML sentence segmentation results (FIFO eviction)
+        static let maxSentenceCacheSize: Int = 500
+    }
+
+    /// Word Sense Disambiguation settings
+    enum WSD {
+        /// Maximum cache size for WSD rank results (FIFO eviction)
+        static let maxCacheSize: Int = 200
     }
     
     /// Image file settings

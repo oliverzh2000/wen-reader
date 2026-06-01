@@ -62,11 +62,21 @@ enum EpubMetadataLoader {
         let authors = publication.metadata.authors.map(\.name)
         let canonicalID = publication.metadata.identifier
         
+        // Compute page count from positions list
+        let pageCount: Int?
+        switch await publication.positions() {
+        case .success(let positions):
+            pageCount = positions.count
+        case .failure:
+            pageCount = nil
+        }
+        
         return BookMetadata(
             title: title,
             authors: authors,
             canonicalID: canonicalID,
-            cover: cover
+            cover: cover,
+            pageCount: pageCount
         )
     }
 }

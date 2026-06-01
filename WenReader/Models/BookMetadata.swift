@@ -8,4 +8,5 @@ struct BookMetadata {
     var authors: [String]
     var canonicalID: String?
     var cover: UIImage?
+    var pageCount: Int?
 }

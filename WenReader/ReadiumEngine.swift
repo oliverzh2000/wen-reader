@@ -35,15 +35,21 @@ final class ReadiumEngine: ObservableObject {
     
     // MARK: - Computed Properties
     
+    /// Current reading progression as a 0.0–1.0 value, or nil if unavailable.
+    var currentProgression: Double? {
+        currentLocation?.locations.totalProgression
+    }
+    
     var canGoBackInDictionary: Bool {
         dictionaryManager.canGoBack
     }
     
     // MARK: - Dictionary Operations
     
-    /// Look up a word in the dictionary
-    func updateDictionaryResult(for word: String?) async {
-        await dictionaryManager.lookup(word)
+    /// Look up a word in the dictionary.
+    /// When `sentence` is provided, WSD is used to sort senses by contextual relevance.
+    func updateDictionaryResult(for word: String?, sentence: String? = nil) async {
+        await dictionaryManager.lookup(word, sentence: sentence)
         if word == nil {
             interactionManager.clearHighlight()
         }
@@ -92,7 +98,7 @@ final class ReadiumEngine: ObservableObject {
                 self.currentWordHit = hit
                 // Task wrapper at sync/async boundary (closure callback)
                 Task {
-                    await self.updateDictionaryResult(for: hit?.word)
+                    await self.updateDictionaryResult(for: hit?.word, sentence: hit?.sentence)
                 }
             }
             

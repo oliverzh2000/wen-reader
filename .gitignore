@@ -2,6 +2,11 @@
 xcuserdata/
 *.xcworkspace/xcuserdata/
 
+# IDE
+.idea/
+.kiro/
+.vscode/
+
 # Build products
 build/
 DerivedData/
@@ -19,5 +24,39 @@ Pods/
 # macOS
 .DS_Store
 
+# Python
+*__pycache__/
+
 # Local testing data
 local_test_data/
+
+# Downloaded book corpora (see ml/scripts/dataset_v2/download_books.py)
+ml/data/txt-books/
+ml/data/epub-books/
+
+# Generated dataset files
+ml/data/dataset_v2/
+
+# API keys
+*API_DO_NOT_COMMIT*
+
+# Model training checkpoints & weights (hosted on HF Hub: oliverzh2000/wen-reader)
+ml/models/
+ml/output/
+
+# Generated/regenerable data files
+ml/data/span_scorer_dataset.jsonl
+ml/data/span_scorer_dataset_v2.jsonl
+ml/data/wsd_dataset.tsv
+ml/data/wsd_dataset_merged.tsv
+ml/data/sentence_index.json
+ml/data/mappings.tsv
+ml/data/icwb2-data/
+ml/data/dataset_v2/span_scorer_dataset_v2.jsonl
+
+# Model artifacts - should be built from script
+WenReader/Resources/Models
+WenReader/Resources/cedict.sqlite
+WenReader/Resources/cws_vocab.txt
+WenReader/Resources/wsd_vocab.txt
+WenReader/Resources/span_head_weights.bin

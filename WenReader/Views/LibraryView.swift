@@ -104,29 +104,13 @@ private struct LibraryRow: View {
     let book: BookItem
     let coverImage: UIImage?
     let onRename: () -> Void
-    
-    @ScaledMetric(relativeTo: .largeTitle)
-    private var iconHeight: CGFloat = 70
 
     var body: some View {
         HStack(spacing: 12) {
-            Group {
-                if let coverImage {
-                    Image(uiImage: coverImage)
-                        .resizable()
-                        .scaledToFit()
-                } else {
-                    Image(systemName: "book.closed")
-                        .resizable()
-                        .scaledToFit()
-                }
-            }
-            .frame(width: iconHeight, height: iconHeight)
-            
-            VStack(alignment: .leading) {
-                Text(book.title ?? "No Title").font(.headline)
-                Text(book.authors.isEmpty ? "Unknown Author" : book.authors.joined(separator: ", ")).font(.caption).foregroundStyle(.secondary)
-            }
+            BookInfoRow(
+                book: book,
+                coverImage: coverImage
+            )
             
             Spacer()
             

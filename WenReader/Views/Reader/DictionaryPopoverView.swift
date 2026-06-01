@@ -15,7 +15,8 @@ struct SenseView: View {
     var body: some View {
         Text(makeAttributedString())
             .font(.subheadline)
-            .fixedSize(horizontal: false, vertical: true) // allow multiline wrap
+            .foregroundStyle(sense.isPrimary ? .primary : .secondary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private func makeAttributedString() -> AttributedString {
@@ -146,14 +147,14 @@ struct DictionaryPopover: View {
                 )
             }
 
-            // Headword: simplified [traditional]
+            // Headword: simplified [traditional] (with diff masking)
             if let entry = currentEntry {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text(entry.simplified)
                         .font(.title2)
 
                     if entry.traditional != entry.simplified {
-                        Text("[\(entry.traditional)]")
+                        Text("[\(maskedTraditional(simp: entry.simplified, trad: entry.traditional))]")
                             .font(.title2)
                             .foregroundStyle(.secondary)
                     }
@@ -260,6 +261,28 @@ struct DictionaryPopover: View {
         })
     }
 
+    // MARK: - Traditional diff masking
+    
+    /// For multi-char words, replaces trad chars that match simp with ー (fullwidth)
+    /// so only the *different* characters stand out visually.
+    /// Single-char words or length mismatches show the full traditional form.
+    private func maskedTraditional(simp: String, trad: String) -> String {
+        let simpChars = Array(simp)
+        let tradChars = Array(trad)
+        
+        // Only mask when lengths match and word is multi-char
+        guard simpChars.count == tradChars.count, simpChars.count > 1 else {
+            return trad
+        }
+        
+        // U+FF0D fullwidth hyphen-minus — same visual width as a CJK char
+        let placeholder: Character = "\u{FF0D}"
+        
+        return String(zip(simpChars, tradChars).map { s, t in
+            s == t ? placeholder : t
+        })
+    }
+    
     // MARK: - Link encoding/decoding
     
     private func linkURL(for headword: LinkedHeadword) -> URL? {

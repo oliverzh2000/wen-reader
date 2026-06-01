@@ -151,7 +151,8 @@ final class DefaultBookRepository: BookRepository {
             authors: metadata?.authors ?? [],
             canonicalID: metadata?.canonicalID,
             bookFileName: dest.lastPathComponent,
-            coverFileName: coverFileName
+            coverFileName: coverFileName,
+            pageCount: metadata?.pageCount
         )
         
         return book

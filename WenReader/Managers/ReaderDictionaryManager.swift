@@ -20,14 +20,15 @@ final class ReaderDictionaryManager: ObservableObject {
     
     // MARK: - Public API
     
-    /// Look up a word and reset the stack
-    func lookup(_ word: String?) async {
+    /// Look up a word and reset the stack.
+    /// When `sentence` is provided, WSD is used to sort senses by contextual relevance.
+    func lookup(_ word: String?, sentence: String? = nil) async {
         guard let word = word else {
             clear()
             return
         }
         
-        guard let result = await service.lookup(word) else {
+        guard let result = await service.lookup(word, sentence: sentence) else {
             return
         }
         
