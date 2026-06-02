@@ -85,6 +85,14 @@ struct SettingsSheet: View {
                     .pickerStyle(.automatic)
                 }
 
+                Section("Interaction") {
+                    Picker("Long Press", selection: $settingsStore.settings.interactionMode) {
+                        Text("Word Lookup").tag(ReaderInteractionMode.custom)
+                        Text("Text Selection").tag(ReaderInteractionMode.system)
+                    }
+                    .pickerStyle(.automatic)
+                }
+
                 Section {
                     Toggle(
                         "Word Segmentation",

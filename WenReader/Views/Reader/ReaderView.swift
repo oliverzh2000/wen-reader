@@ -267,8 +267,8 @@ struct ReaderChromeModifier: SwiftUI.ViewModifier {
                             Image(systemName: "text.magnifyingglass")
                                 .foregroundColor(
                                     settingsStore.settings.interactionMode == .custom
-                                    ? .accentColor      // Active: blue (or your theme)
-                                    : .secondary         // Inactive: gray
+                                    ? .accentColor
+                                    : .secondary
                                 )
                         }
                         Button {
