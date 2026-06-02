@@ -156,7 +156,11 @@ struct ReaderView: View {
             title: book.title ?? "",
             showChrome: $showChrome,
             showChapters: $showChapters,
-            showSettings: $showSettings
+            showSettings: $showSettings,
+            showReturnButton: engine.canReturn,
+            onReturn: {
+                Task { await engine.goBackToReturnLocator() }
+            }
         )
         .onAppear {
             guard !didSync else { return }
@@ -225,6 +229,8 @@ struct ReaderChromeModifier: SwiftUI.ViewModifier {
     @Binding var showChrome: Bool
     @Binding var showChapters: Bool
     @Binding var showSettings: Bool
+    let showReturnButton: Bool
+    let onReturn: () -> Void
 
     // Disambiguate SwiftUI's Content explicitly for this modifier type.
     // Namespace collision between SwiftUI and ReadiumShared Content!
@@ -234,6 +240,13 @@ struct ReaderChromeModifier: SwiftUI.ViewModifier {
         content
             .statusBarHidden(!showChrome)
             .toolbar {
+                ToolbarItemGroup(placement: .topBarLeading) {
+                    if showReturnButton {
+                        Button(action: onReturn) {
+                            Image(systemName: "arrow.uturn.backward")
+                        }
+                    }
+                }
                 ToolbarItem(placement: .principal) {
                     // Title acts like a button to open chapters
                     Button {
@@ -288,14 +301,18 @@ extension View {
         title: String,
         showChrome: Binding<Bool>,
         showChapters: Binding<Bool>,
-        showSettings: Binding<Bool>
+        showSettings: Binding<Bool>,
+        showReturnButton: Bool,
+        onReturn: @escaping () -> Void
     ) -> some View {
         modifier(
             ReaderChromeModifier(
                 title: title,
                 showChrome: showChrome,
                 showChapters: showChapters,
-                showSettings: showSettings
+                showSettings: showSettings,
+                showReturnButton: showReturnButton,
+                onReturn: onReturn
             )
         )
     }

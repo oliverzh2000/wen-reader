@@ -22,6 +22,10 @@ final class ReadiumEngine: ObservableObject {
     @Published var isOpening: Bool = false
     @Published var currentLocation: Locator?
     @Published var currentWordHit: WordHit?
+    /// Saved locator to return to after following an internal link (e.g. footnote)
+    @Published var returnLocator: Locator?
+    private var isReturning = false
+    private var justFollowedLink = false
     
     // MARK: - Managers
     private let publicationManager = ReadiumPublicationManager()
@@ -42,6 +46,11 @@ final class ReadiumEngine: ObservableObject {
     
     var canGoBackInDictionary: Bool {
         dictionaryManager.canGoBack
+    }
+    
+    /// Whether the user can return to a previous location after following an internal link.
+    var canReturn: Bool {
+        returnLocator != nil
     }
     
     // MARK: - Dictionary Operations
@@ -118,6 +127,14 @@ final class ReadiumEngine: ObservableObject {
     func go(to locator: Locator) async {
         await navigatorVC?.go(to: locator)
     }
+
+    /// Navigate back to the saved return locator (e.g. after visiting a footnote)
+    func goBackToReturnLocator() async {
+        guard let locator = returnLocator else { return }
+        isReturning = true
+        returnLocator = nil
+        await navigatorVC?.go(to: locator)
+    }
 }
 
 // MARK: - NavigatorDelegate
@@ -130,6 +147,24 @@ extension ReadiumEngine: EPUBNavigatorDelegate {
 
     func navigator(_ navigator: Navigator, locationDidChange locator: Locator) {
         closeDictionaryAndClearHighlight()
+        
+        // Clear the return locator when the user navigates away from the
+        // footnote page (e.g. swipe/page turn), but NOT when we just arrived
+        // at the footnote itself or are returning via goBackToReturnLocator().
+        if isReturning {
+            isReturning = false
+        } else if returnLocator != nil {
+            // We already have a return locator set (meaning we followed a link).
+            // If this location change is the result of that link navigation,
+            // keep it. If it's a subsequent navigation (user swiped away), clear it.
+            // We distinguish by checking if we just set it in shouldNavigateToLink.
+            if !justFollowedLink {
+                withAnimation(.easeInOut) {
+                    returnLocator = nil
+                }
+            }
+            justFollowedLink = false
+        }
         
         currentLocation = locator
         locationManager.saveLocation(locator)
@@ -149,6 +184,17 @@ extension ReadiumEngine: EPUBNavigatorDelegate {
         // Propagate ML settings
         interactionManager.setCwsEnabled(settings.cwsEnabled)
         WSDServiceFactory.initialize(wsdEnabled: settings.wsdEnabled)
+    }
+
+    func navigator(_ navigator: VisualNavigator, shouldNavigateToLink link: ReadiumShared.Link) -> Bool {
+        // Save current location so user can return after following the link
+        if let locator = currentLocation {
+            withAnimation(.easeInOut) {
+                returnLocator = locator
+            }
+            justFollowedLink = true
+        }
+        return true
     }
 
     // Use this for reliable and link-friendly tapping.
