@@ -1,6 +1,7 @@
 // Copyright 2025 Oliver Zhang
 // Licensed under the MIT License
 
+import Accelerate
 import Foundation
 
 /// ML-based Chinese word segmentation using a span scoring architecture.
@@ -101,6 +102,10 @@ final class SpanScorerSegmentationService: SegmentationService {
         offset += mlpH
         self.mlpBias2 = [allFloats[offset]]
         offset += 1
+
+        // Pre-flatten weight matrices for Accelerate (cblas_sgemv)
+        self.mlpWeight1Flat = w1.flatMap { $0 }
+        self.mlpWeight2Flat = self.mlpWeight2[0]
 
         Log.info("SpanScorer: loaded head weights (\(offset) floats, \(headData.count) bytes)")
     }
@@ -392,13 +397,19 @@ final class SpanScorerSegmentationService: SegmentationService {
         )
     }
 
-    // MARK: - MLP Scoring
+    // MARK: - MLP Scoring (Accelerate)
+
+    /// Contiguous weight storage for vDSP matrix-vector operations.
+    private let mlpWeight1Flat: [Float]   // [mlpHidden × inputDim] row-major
+    private let mlpWeight2Flat: [Float]   // [1 × mlpHidden] row-major
 
     private func scoreSpan(
         hiddenStates: [Float], start: Int, endInclusive: Int, width: Int, seqLen: Int
     ) -> Float {
         let hDim = Self.hiddenDim
         let wDim = Self.widthEmbedDim
+        let mlpH = Self.mlpHidden
+        let inputDim = hDim * 2 + wDim
         let startToken = start + 1
         let endToken = endInclusive + 1
 
@@ -410,29 +421,54 @@ final class SpanScorerSegmentationService: SegmentationService {
         let startOff = startToken * hDim
         let endOff = endToken * hDim
 
-        // Safety: verify we won't read past the end of the hiddenStates array
         guard endOff + hDim <= hiddenStates.count else {
             print("[SPAN DEBUG] scoreSpan OOB: endOff=\(endOff) + hDim=\(hDim) = \(endOff + hDim) > hiddenStates.count=\(hiddenStates.count)")
             return -100.0
         }
-        let widthEmb = widthEmbedding[width - 1]
 
-        var input = [Float](repeating: 0, count: hDim * 2 + wDim)
-        for i in 0..<hDim { input[i] = hiddenStates[startOff + i] }
-        for i in 0..<hDim { input[hDim + i] = hiddenStates[endOff + i] }
-        for i in 0..<wDim { input[hDim * 2 + i] = widthEmb[i] }
-
-        var hidden = [Float](repeating: 0, count: Self.mlpHidden)
-        for i in 0..<Self.mlpHidden {
-            var sum = mlpBias1[i]
-            let row = mlpWeight1[i]
-            for j in 0..<input.count { sum += row[j] * input[j] }
-            hidden[i] = max(0, sum)
+        // Build input vector: [H[start] ; H[end] ; width_emb]
+        var input = [Float](repeating: 0, count: inputDim)
+        input.withUnsafeMutableBufferPointer { buf in
+            hiddenStates.withUnsafeBufferPointer { src in
+                buf.baseAddress!.update(from: src.baseAddress! + startOff, count: hDim)
+                (buf.baseAddress! + hDim).update(from: src.baseAddress! + endOff, count: hDim)
+            }
+            widthEmbedding[width - 1].withUnsafeBufferPointer { wEmb in
+                (buf.baseAddress! + hDim * 2).update(from: wEmb.baseAddress!, count: wDim)
+            }
         }
 
-        var score = mlpBias2[0]
-        let row2 = mlpWeight2[0]
-        for i in 0..<Self.mlpHidden { score += row2[i] * hidden[i] }
+        // Layer 1: hidden = ReLU(W1 @ input + b1)
+        // cblas_sgemv: y = alpha * A * x + beta * y
+        var hidden = [Float](mlpBias1)  // start with bias
+        mlpWeight1Flat.withUnsafeBufferPointer { w1 in
+            input.withUnsafeBufferPointer { inp in
+                hidden.withUnsafeMutableBufferPointer { h in
+                    cblas_sgemv(
+                        CblasRowMajor, CblasNoTrans,
+                        Int32(mlpH), Int32(inputDim),
+                        1.0,                          // alpha
+                        w1.baseAddress!, Int32(inputDim),  // A, lda
+                        inp.baseAddress!, 1,          // x, incx
+                        1.0,                          // beta (add to bias)
+                        h.baseAddress!, 1             // y, incy
+                    )
+                }
+            }
+        }
+
+        // ReLU in-place
+        vDSP.threshold(hidden, to: 0, with: .zeroFill, result: &hidden)
+
+        // Layer 2: score = W2 @ hidden + b2
+        var score: Float = 0
+        mlpWeight2Flat.withUnsafeBufferPointer { w2 in
+            hidden.withUnsafeBufferPointer { h in
+                vDSP_dotpr(w2.baseAddress!, 1, h.baseAddress!, 1, &score, vDSP_Length(mlpH))
+            }
+        }
+        score += mlpBias2[0]
+
         return score
     }
 
