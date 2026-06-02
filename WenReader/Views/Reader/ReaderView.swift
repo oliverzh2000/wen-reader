@@ -274,7 +274,7 @@ struct ReaderChromeModifier: SwiftUI.ViewModifier {
                         Button {
                             showSettings = true
                         } label: {
-                            Image(systemName: "textformat.size")
+                            Image(systemName: "slider.horizontal.3")
                         }
                     }
                 }

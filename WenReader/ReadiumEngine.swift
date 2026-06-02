@@ -145,6 +145,10 @@ extension ReadiumEngine: EPUBNavigatorDelegate {
             to: navigator,
             interactionManager: interactionManager
         )
+
+        // Propagate ML settings
+        interactionManager.setCwsEnabled(settings.cwsEnabled)
+        WSDServiceFactory.initialize(wsdEnabled: settings.wsdEnabled)
     }
 
     // Use this for reliable and link-friendly tapping.

@@ -90,6 +90,11 @@ final class ReaderInteractionManager {
     func consumeSuppressedTap() -> Bool {
         return gestureHandler.consumeSuppressedTap()
     }
+
+    /// Update ML-based segmentation enabled state.
+    func setCwsEnabled(_ enabled: Bool) {
+        gestureHandler.cwsEnabled = enabled
+    }
     
     // MARK: - Private Helpers
     

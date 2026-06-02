@@ -30,6 +30,9 @@ final class LongPressGestureHandler: NSObject, UIGestureRecognizerDelegate {
     var onWordHit: ((WordHit?) -> Void)?
     var onScrollingStateChange: ((Bool) -> Void)?
     
+    /// Whether ML-based segmentation (CWS) is enabled. Updated from settings.
+    var cwsEnabled: Bool = true
+    
     // MARK: - Setup
     
     func install(on navigatorVC: EPUBNavigatorViewController) {
@@ -149,7 +152,8 @@ final class LongPressGestureHandler: NSObject, UIGestureRecognizerDelegate {
                     
                     // Determine if we need to (re)segment this run
                     if self.currentRunText != run {
-                        let segments = await SegmentationServiceFactory.shared.segment(run: run, sentence: context)
+                        let service = SegmentationServiceFactory.active(cwsEnabled: self.cwsEnabled)
+                        let segments = await service.segment(run: run, sentence: context)
                         self.currentRunText = run
                         self.currentContext = context
                         self.currentSegments = segments
@@ -220,6 +224,7 @@ final class LongPressGestureHandler: NSObject, UIGestureRecognizerDelegate {
         sentence: String
     ) {
         guard word.count > 1,
+              cwsEnabled,
               let spanScorer = SegmentationServiceFactory.spanScorer,
               var segments = currentSegments else { return }
         

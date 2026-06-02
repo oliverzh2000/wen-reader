@@ -86,16 +86,34 @@ struct SettingsSheet: View {
                 }
 
                 Section {
+                    Toggle(
+                        "Word Segmentation",
+                        isOn: $settingsStore.settings.cwsEnabled
+                    )
+                    Toggle(
+                        "Definition Ranking",
+                        isOn: $settingsStore.settings.wsdEnabled
+                    )
+                } header: {
+                    Text("On-Device ML")
+                } footer: {
+                    Text("Enable for context-aware word segmentation and definition ranking. Disable to save battery.")
+                }
+
+                Section {
                     Button("Reset to Defaults", role: .destructive) {
                         settingsStore.settings = ReaderSettings()
                     }
                 }
             }
-            .navigationTitle("Reading Settings")
+            .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark")
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
             .preferredColorScheme(preferredColorScheme)

@@ -70,4 +70,9 @@ struct ReaderSettings: Codable, Equatable {
     var justify: Bool = true
     var theme: ReaderTheme = .system
     var promptStyle: PromptStyle = .quick
+
+    /// Enable ML-based word segmentation (span scorer). When disabled, falls back to dictionary-based segmentation.
+    var cwsEnabled: Bool = true
+    /// Enable ML-based word sense disambiguation. When disabled, senses are shown in database order.
+    var wsdEnabled: Bool = true
 }
