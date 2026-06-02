@@ -15,7 +15,7 @@ struct SenseView: View {
     var body: some View {
         Text(makeAttributedString())
             .font(.subheadline)
-            .foregroundStyle(sense.isPrimary ? .primary : .secondary)
+            .foregroundStyle(.primary)
             .fixedSize(horizontal: false, vertical: true)
     }
 
