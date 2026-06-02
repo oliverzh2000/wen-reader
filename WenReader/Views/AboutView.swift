@@ -28,6 +28,18 @@ private let thirdPartyLicenses: [LicenseItem] = [
         resourceExtension: "txt"
     ),
     LicenseItem(
+        name: "Chinese ELECTRA",
+        subtitle: "Apache 2.0",
+        resourceName: "chinese-electra-license",
+        resourceExtension: "txt"
+    ),
+    LicenseItem(
+        name: "GTE (General Text Embeddings)",
+        subtitle: "MIT",
+        resourceName: "gte-license",
+        resourceExtension: "txt"
+    ),
+    LicenseItem(
         name: "Noto Serif SC",
         subtitle: "SIL Open Font License 1.1",
         resourceName: "noto-serif-sc-license",
