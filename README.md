@@ -6,7 +6,7 @@
 https://apps.apple.com/app/wen-reader/id6755988730
 )
 
-Built out of a genuine love for learning Chinese, Wen Reader gives intermediate readers a clean, modern way to read native-level books while getting quick CEDICT definitions with a simple long-press. 
+Built out of a genuine love for learning Chinese, Wen Reader gives intermediate readers a clean, modern way to read native-level books while getting context-aware dictionary definitions with a simple long-press. 
 
 Import your own EPUBs, read with great typography, and stay fully offline.
 
@@ -29,8 +29,8 @@ Import your own EPUBs, read with great typography, and stay fully offline.
 ### Long-Press Dictionary Popover
 - Long-press on any Chinese text to show an inline dictionary panel.  
 - Uses CC-CEDICT for offline definitions.  
-- Automatic multi-character segmentation to surface the most likely word or idiom.  
-- Options to copy the word, sentence, or paragraph; or send text to Pleco / ChatGPT (if installed).
+- Context-aware word segmentation and sense disambiguation powered by lightweight on-device ML (see [Technical Overview](#on-device-ml)).
+- Options to copy the word, sentence, or paragraph; or send text to Pleco (if installed)
 
 ### Navigation
 - Tap the book title to view and navigate the table of contents.  
@@ -44,20 +44,6 @@ Import your own EPUBs, read with great typography, and stay fully offline.
 
 ---
 
-## Intended Audience
-
-Wen Reader is built for **intermediate Chinese learners**:
-
-- Readers who can understand native Chinese text with some effort.  
-- Learners who want a modern, clean EPUB reading experience without distractions.  
-- Users who benefit from quick dictionary support but do not need the full ecosystem of flashcards, handwriting input, OCR, etc.
-
-Wen Reader is **not** a replacement for Pleco. Pleco remains the most complete Chinese dictionary and learning tool available; Wen Reader is designed to complement it by focusing exclusively on reading EPUB books with an unobtrusive inline lookup workflow.
-
-If you read Chinese novels, essays, or non-fiction and want a lightweight, privacy-respecting tool to assist your reading, Wen Reader aims to fill that niche.
-
----
-
 ## Technical Overview
 
 Wen Reader is implemented in Swift and SwiftUI.
@@ -68,15 +54,23 @@ Wen Reader is implemented in Swift and SwiftUI.
   - extract the block, sentence, and character run at the press location
   - apply or remove highlighting around words
 
-### Dictionary & Segmentation
-- Segmentation is performed entirely on the Swift side using:
-  - a CC-CEDICT-derived SQLite database for fast dictionary lookups  
-  - a dynamic-programming segmentation algorithm that scores candidate tokenizations
-  - longest-match preference with fallback handling for single-character or mixed Chinese/Latin runs  
-- The JavaScript layer does not segment text; it only returns the raw text spans around the long-press location. All segmentation logic and dictionary lookup occur natively in Swift.
+### On-Device ML
 
-### Offline Architecture
-Because all dictionary data and segmentation logic are stored locally, no external requests are made during reading. The app remains functional in airplane mode and does not transmit user data.
+Wen Reader runs two small BERT-style neural networks entirely on-device via CoreML to provide context-aware Chinese word segmentation and word sense disambiguation — no internet required.
+
+- **Word segmentation:** A model evaluates all possible dictionary word spans in a sentence and finds the best overall segmentation.
+  - Example: in 研究生命的意义 the model correctly segments 研究|生命|的|意义 "to study the meaning of life" rather than 研究生|命|的|意义 "graduate student|fate|…".
+
+- **Word sense disambiguation:** A model ranks dictionary definitions by how well they match the surrounding context, so the popup shows the right meaning first.
+  - Example: 长 has multiple pronunciations and meanings — in 孩子长大了 the model surfaces "zhǎng: to grow" rather than "cháng: long" or "zhǎng: chief".
+
+Both models are fine-tuned on a mix of open corpora (Wikipedia, OpenSubtitles, ICWB2, ebooks), LLM-annotated sentences from those corpora, and LLM-generated training examples. Models are quantized to int8 weights and run in 5–40ms on an iPhone 13 Pro. Total model footprint is ~44 MB. 
+
+For technical details on architecture, training data, and evaluation, see [#2](https://github.com/oliverzh2000/wen-reader/issues/2).
+
+### Dictionary & Lookup
+- Uses a CC-CEDICT-derived SQLite database for offline definitions and sense embeddings.
+- All segmentation, scoring, and dictionary lookup occur natively in Swift — the JavaScript layer only extracts raw text spans around the long-press location.
 
 ---
 
@@ -92,13 +86,37 @@ Wen Reader would not be possible without the following open-source or freely lic
   https://github.com/readium  
   © EDRLab. Licensed under BSD-3-Clause.
 
+- **Chinese ELECTRA** (HFL, Harbin Institute of Technology & iFLYTEK)  
+  https://huggingface.co/hfl/chinese-electra-180g-small-discriminator  
+  Base encoder for the word segmentation model. Licensed under Apache 2.0.
+
+- **GTE (General Text Embeddings)** (Alibaba DAMO Academy)  
+  https://huggingface.co/thenlper/gte-base-zh  
+  Base encoder for the word sense disambiguation model (distilled from gte-base-zh to gte-small-zh). Licensed under MIT.
+
+- **MiCLS** (ACL 2024, Peking University)  
+  https://huggingface.co/datasets/wyy209/MiCLS  
+  Chinese WSD corpus used as training data. Licensed under MIT.
+
+- **ICWB2** (SIGHAN Bakeoff 2005)  
+  https://github.com/yuikns/icwb2-data  
+  MSR segmentation corpus used as training data.
+
+- **Chinese Wikipedia**  
+  https://huggingface.co/datasets/wikimedia/wikipedia (20231101.zh)  
+  Source corpus for segmentation training data. Licensed under CC-BY-SA 3.0.
+
+- **OpenSubtitles zh-cn**  
+  https://huggingface.co/datasets/FradSer/OpenSubtitles-en-zh-cn-20m  
+  Source corpus for segmentation training data.
+
 - **Noto Serif SC** (Google Fonts)  
   https://fonts.google.com/noto/specimen/Noto+Serif+SC  
   Licensed under the Open Font License (OFL).
 
 - **Pleco** (optional external integration)  
   https://www.pleco.com/  
-  Not bundled with the app; Wen Reader simply provides an option to send text to Pleco if installed.
+  Not bundled with the app; Wen Reader provides an option to send text to Pleco if installed.
 
 ---
 
@@ -110,8 +128,8 @@ Specifically:
 - no analytics  
 - no telemetry  
 - no crash reporting  
-- no external servers  
-- no logging of reading behavior or dictionary usage  
+- no external servers (no cloud APIs, no LLM calls — all ML runs on-device)  
+- no logging of reading behavior or dictionary usage beyond your device  
 
 All data — including imported books — stays on your device.
 
@@ -132,17 +150,9 @@ You can reach me at oliverzh2000@gmail.com
 
 ---
 
-## Roadmap (Non-binding)
+## Roadmap
 
 Planned improvements for future releases include:
 
-- Context-aware word segmentation  
-Transitioning from heuristic / dictionary-driven segmentation to a transformer-based on-device model.
-This enables more accurate boundaries for idioms, rare words, and ambiguous cases that rule-based methods struggle with.
-
 - Bookmarks & in-book search  
-Standard reading features that are on the way.
-
-- Flashcard export  
-Export looked-up words or highlighted words into a structured format for other tools (Anki, Pleco, etc).
-
+- Flashcard (Pleco, Anki, etc) export
