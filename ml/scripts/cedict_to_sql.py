@@ -229,8 +229,6 @@ def generate_embeddings(conn, entry_clusters, translation_cache, wsd_model_dir):
     cluster_texts = {}  # (word, pinyin, idx) → chinese_text
     for (word, pinyin), ec in entry_clusters.items():
         for idx, info in enumerate(ec):
-            if info["is_trivial"]:
-                continue
             zh_parts = []
             for sense_en in info["senses"]:
                 zh = translation_cache.get(f"{word}|{pinyin}|{sense_en}")
