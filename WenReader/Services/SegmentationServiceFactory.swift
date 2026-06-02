@@ -3,11 +3,13 @@
 
 import Foundation
 
-/// Provides a shared `SegmentationService` instance for the app.
+/// Provides segmentation services for the app.
 ///
-/// Tries span scorer first, falls back to dictionary-based segmentation.
+/// Initializes eagerly at app startup. The active service depends on the
+/// `cwsEnabled` setting — when disabled, falls back to dictionary-based segmentation.
 enum SegmentationServiceFactory {
 
+    /// Shared CEDICT trie, built once at startup.
     static let sharedTrie: CedictTrie? = {
         let start = CFAbsoluteTimeGetCurrent()
         let trie = CedictTrie.fromDatabase()
@@ -18,26 +20,39 @@ enum SegmentationServiceFactory {
         return trie
     }()
 
-    static let shared: SegmentationService = {
-        WSDServiceFactory.initialize()
-
-        if let trie = sharedTrie {
-            do {
-                let service = try SpanScorerSegmentationService(trie: trie)
-                Log.info("SegmentationServiceFactory: Using span scorer segmentation")
-                return service
-            } catch {
-                Log.error("SegmentationServiceFactory: Span scorer failed (\(error.localizedDescription)), falling back to CEDICT")
-            }
+    /// The span scorer service, if model loaded successfully.
+    static let spanScorer: SpanScorerSegmentationService? = {
+        guard let trie = sharedTrie else { return nil }
+        do {
+            let service = try SpanScorerSegmentationService(trie: trie)
+            Log.info("SegmentationServiceFactory: Span scorer loaded")
+            return service
+        } catch {
+            Log.error("SegmentationServiceFactory: Span scorer failed (\(error.localizedDescription))")
+            return nil
         }
-
-        return CedictSegmentationService(
-            dict: CedictSqlService.shared,
-            maxWordLength: ReaderConstants.Segmentation.maxWordLength
-        )
     }()
 
-    static var spanScorer: SpanScorerSegmentationService? {
-        shared as? SpanScorerSegmentationService
+    /// The dictionary-based fallback segmentation service.
+    static let cedictService: SegmentationService = CedictSegmentationService(
+        dict: CedictSqlService.shared,
+        maxWordLength: ReaderConstants.Segmentation.maxWordLength
+    )
+
+    /// Returns the active segmentation service based on settings.
+    /// When CWS is enabled and span scorer is available, uses ML segmentation.
+    /// Otherwise falls back to dictionary-based.
+    static func active(cwsEnabled: Bool) -> SegmentationService {
+        if cwsEnabled, let scorer = spanScorer {
+            return scorer
+        }
+        return cedictService
+    }
+
+    /// Eagerly initialize all services. Call at app startup.
+    static func initialize() {
+        _ = sharedTrie
+        _ = spanScorer
+        _ = cedictService
     }
 }

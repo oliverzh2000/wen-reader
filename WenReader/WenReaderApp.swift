@@ -9,6 +9,18 @@ struct WenReaderApp: App {
     @StateObject private var globalUiState = UiState()
     @StateObject private var settingsStore = SettingsStore()
 
+    init() {
+        // Eagerly initialize ML services at app startup (off main thread work
+        // is deferred internally, but this triggers model loading early).
+        let settings = UserDefaults.standard.codable(
+            ReaderSettings.self,
+            forKey: "reader.settings",
+            default: ReaderSettings()
+        )
+        SegmentationServiceFactory.initialize()
+        WSDServiceFactory.initialize(wsdEnabled: settings.wsdEnabled)
+    }
+
     var body: some Scene {
         WindowGroup {
             TabView {
