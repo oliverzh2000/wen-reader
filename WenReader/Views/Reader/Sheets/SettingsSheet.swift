@@ -107,6 +107,7 @@ struct SettingsSheet: View {
                 } footer: {
                     Text("Enable for context-aware word segmentation and definition ranking. Disable to save battery.")
                 }
+                .disabled(settingsStore.settings.interactionMode == .system)
 
                 Section {
                     Button("Reset to Defaults", role: .destructive) {
