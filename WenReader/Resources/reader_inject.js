@@ -1,374 +1,361 @@
- (function () {
-   if (window.CR && window.CR.__ready) return;
+(function () {
+  if (window.WR && window.WR.__ready) return;
 
-   // ---------- Utilities ----------
+  // ---------- Constants ----------
 
-   function addClass(cls) {
-     if (!document.documentElement.classList.contains(cls)) {
-       document.documentElement.classList.add(cls);
-     }
-   }
+  var HIGHLIGHT_ID = "wr-highlight";
+  var ACTIVE_BLOCK_ID = "wr-active-block";
+  var BLOCK_SELECTOR = "p, div, li, blockquote, td, th, article, section";
 
-   function removeClass(cls) {
-     document.documentElement.classList.remove(cls);
-   }
+  // ---------- Utilities ----------
 
-   function isWhitespace(ch) {
-     return /\s/.test(ch);
-   }
+  function findBlockFromPoint(x, y) {
+    var el = document.elementFromPoint(x, y);
+    if (!el) return null;
+    if (el.nodeType === Node.TEXT_NODE) el = el.parentElement;
+    // Walk up to find the nearest block-level text container
+    var block = el.closest(BLOCK_SELECTOR);
+    return block || null;
+  }
 
-   function isChinese(ch) {
-     if (!ch) return false;
-     const code = ch.charCodeAt(0);
-     return (
-       (code >= 0x3400 && code <= 0x4DBF) || // Ext A
-       (code >= 0x4E00 && code <= 0x9FFF) || // Basic
-       (code >= 0xF900 && code <= 0xFAFF)    // Compatibility
-     );
-   }
+  /**
+   * Get the full text content of a block, joining all text nodes in order.
+   * Returns { text, textNodes } where textNodes is array of { node, startOffset }
+   * mapping each text node to its character offset in the combined string.
+   */
+  function getBlockTextMap(block) {
+    var walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT, null);
+    var textNodes = [];
+    var fullText = "";
+    var node;
+    while ((node = walker.nextNode())) {
+      // Skip the highlight span's content — we'll count its text but note it's inside highlight
+      textNodes.push({ node: node, startOffset: fullText.length });
+      fullText += node.nodeValue || "";
+    }
+    return { text: fullText, textNodes: textNodes };
+  }
 
-   function isSentenceBoundary(ch) {
-     return /[。！？!?]/.test(ch);
-   }
+  /**
+   * Temporarily wrap every character in the block into individual spans,
+   * hit-test with elementFromPoint, then unwrap everything.
+   * Returns the character index within the block's text, or -1 if miss.
+   */
+  function hitTestCharIndex(block, x, y) {
+    var map = getBlockTextMap(block);
+    if (!map.text.length) return -1;
 
-   function elementFromPointSafe(x, y) {
-     let el = document.elementFromPoint(x, y);
-     if (!el) return null;
-     if (el.nodeType === Node.TEXT_NODE) {
-       el = el.parentElement;
-     }
-     return el;
-   }
+    // Build a flat list of char spans by replacing each text node
+    var charSpans = [];
+    var originalNodes = []; // track originals for restoration
 
-   function findBlockElementFromPoint(x, y) {
-     const el = elementFromPointSafe(x, y);
-     if (!el) return null;
-     return (
-       el.closest("p, div, li, article, section, td, th") ||
-       document.body
-     );
-   }
+    for (var t = 0; t < map.textNodes.length; t++) {
+      var entry = map.textNodes[t];
+      var textNode = entry.node;
+      var text = textNode.nodeValue || "";
+      if (!text.length) continue;
 
-   // ---------- Generic segmentation helpers ----------
+      var frag = document.createDocumentFragment();
+      for (var i = 0; i < text.length; i++) {
+        var span = document.createElement("span");
+        span.textContent = text[i];
+        span.setAttribute("data-wr-idx", String(entry.startOffset + i));
+        frag.appendChild(span);
+        charSpans.push(span);
+      }
 
-   /**
-    * Generic helper: walk text nodes under `root`, call `segmentFn(node, text)`
-    * which returns a DocumentFragment to replace that text node with.
-    * Idempotency is controlled via `flagAttr` on root.
-    */
-   function segmentTextNodesOnce(root, flagAttr, segmentFn) {
-     if (!root || root.dataset[flagAttr] === "1") return;
+      originalNodes.push({ parent: textNode.parentNode, textNode: textNode, frag: frag });
+      textNode.parentNode.replaceChild(frag, textNode);
+    }
 
-     const walker = document.createTreeWalker(
-       root,
-       NodeFilter.SHOW_TEXT,
-       {
-         acceptNode(node) {
-           if (!node.nodeValue || !node.nodeValue.trim()) {
-             return NodeFilter.FILTER_REJECT;
-           }
-           return NodeFilter.FILTER_ACCEPT;
-         }
-       }
-     );
+    // Hit test
+    var hitEl = document.elementFromPoint(x, y);
+    var charIndex = -1;
+    if (hitEl && hitEl.hasAttribute && hitEl.hasAttribute("data-wr-idx")) {
+      charIndex = parseInt(hitEl.getAttribute("data-wr-idx"), 10);
+    }
 
-     const textNodes = [];
-     while (walker.nextNode()) {
-       textNodes.push(walker.currentNode);
-     }
+    // Restore: replace char spans back with original text nodes
+    // We need to do this carefully since the frag was consumed.
+    // Collect spans by parent and replace them back with text nodes.
+    for (var r = originalNodes.length - 1; r >= 0; r--) {
+      var info = originalNodes[r];
+      // Find the first char span that belongs to this text node
+      // They're consecutive siblings in the parent
+      var parent = info.parent;
+      var textVal = info.textNode.nodeValue || "";
+      var startIdx = -1;
 
-     for (const node of textNodes) {
-       const text = node.nodeValue;
-       if (!text) continue;
-       const frag = segmentFn(node, text);
-       if (frag && node.parentNode) {
-         node.parentNode.replaceChild(frag, node);
-       }
-     }
+      // Find where our spans are in the parent's children
+      for (var c = 0; c < parent.childNodes.length; c++) {
+        var child = parent.childNodes[c];
+        if (child.hasAttribute && child.hasAttribute("data-wr-idx")) {
+          var idx = parseInt(child.getAttribute("data-wr-idx"), 10);
+          // Check if this is the first char of our text node
+          var expectedStart = 0;
+          for (var s = 0; s < map.textNodes.length; s++) {
+            if (map.textNodes[s].node === info.textNode) {
+              expectedStart = map.textNodes[s].startOffset;
+              break;
+            }
+          }
+          if (idx === expectedStart) {
+            startIdx = c;
+            break;
+          }
+        }
+      }
 
-     root.dataset[flagAttr] = "1";
-   }
+      if (startIdx >= 0) {
+        // Remove the char spans and insert original text node
+        var count = textVal.length;
+        for (var rem = 0; rem < count; rem++) {
+          if (startIdx < parent.childNodes.length) {
+            parent.removeChild(parent.childNodes[startIdx]);
+          }
+        }
+        if (startIdx < parent.childNodes.length) {
+          parent.insertBefore(info.textNode, parent.childNodes[startIdx]);
+        } else {
+          parent.appendChild(info.textNode);
+        }
+      }
+    }
 
-   // ---------- Sentence segmentation ----------
-     function ensureSentenceSpans(block) {
-       segmentTextNodesOnce(block, "crSentWrapped", function (_node, text) {
-         const frag = document.createDocumentFragment();
-         let currentSentenceSpan = null;
-         let buffer = "";
+    return charIndex;
+  }
 
-         function ensureSentenceSpan() {
-           if (!currentSentenceSpan) {
-             currentSentenceSpan = document.createElement("span");
-             currentSentenceSpan.className = "cr-sentence";
-             frag.appendChild(currentSentenceSpan);
-           }
-           return currentSentenceSpan;
-         }
+  // ---------- Highlight management ----------
 
-         function flushBuffer() {
-           if (!buffer) return;
-           const span = ensureSentenceSpan();
-           span.appendChild(document.createTextNode(buffer));
-           buffer = "";
-         }
+  function clearHighlight() {
+    var existing = document.getElementById(HIGHLIGHT_ID);
+    if (!existing) return;
+    // Move children back to parent, then remove the span
+    var parent = existing.parentNode;
+    while (existing.firstChild) {
+      parent.insertBefore(existing.firstChild, existing);
+    }
+    parent.removeChild(existing);
+    // Normalize to merge adjacent text nodes
+    parent.normalize();
+  }
 
-         for (let i = 0; i < text.length; i++) {
-           const ch = text[i];
+  function setActiveBlock(block) {
+    // Clear old active block marker
+    var old = document.getElementById(ACTIVE_BLOCK_ID);
+    if (old && old !== block) {
+      old.removeAttribute("id");
+    }
+    if (block) {
+      block.id = ACTIVE_BLOCK_ID;
+    }
+  }
 
-           if (isWhitespace(ch)) {
-             // End of any current sentence chunk; whitespace lives outside
-             flushBuffer();
-             currentSentenceSpan = null;
-             frag.appendChild(document.createTextNode(ch));
-             continue;
-           }
+  function getActiveBlock() {
+    return document.getElementById(ACTIVE_BLOCK_ID);
+  }
 
-           if (isSentenceBoundary(ch)) {
-             // Include the boundary char in this sentence
-             buffer += ch;
-             flushBuffer();
-             currentSentenceSpan = null; // next non-whitespace starts a new sentence
-           } else {
-             // Normal char: just accumulate
-             buffer += ch;
-           }
-         }
+  /**
+   * Highlight a range of characters in the active block.
+   * start: char index in block text
+   * length: number of chars to highlight
+   * Returns { rects: [...] } or null
+   */
+  function highlightRange(start, length) {
+    clearHighlight();
 
-         // Flush trailing text if any
-         flushBuffer();
+    var block = getActiveBlock();
+    if (!block) return null;
 
-         return frag;
-       });
-     }
+    var map = getBlockTextMap(block);
+    var end = start + length;
+    if (end > map.text.length) return null;
 
+    // Find the Range covering [start, end) in the text nodes
+    var range = document.createRange();
+    var foundStart = false;
+    var foundEnd = false;
 
-   function sentenceFromPoint(x, y, block) {
-     const el = elementFromPointSafe(x, y);
-     if (!el) return null;
-     return el.closest(".cr-sentence") || block;
-   }
+    for (var i = 0; i < map.textNodes.length; i++) {
+      var entry = map.textNodes[i];
+      var nodeText = entry.node.nodeValue || "";
+      var nodeStart = entry.startOffset;
+      var nodeEnd = nodeStart + nodeText.length;
 
-   // ---------- Chinese run segmentation ----------
+      if (!foundStart && start >= nodeStart && start < nodeEnd) {
+        range.setStart(entry.node, start - nodeStart);
+        foundStart = true;
+      }
+      if (foundStart && end >= nodeStart && end <= nodeEnd) {
+        range.setEnd(entry.node, end - nodeStart);
+        foundEnd = true;
+        break;
+      }
+    }
 
-   function ensureRunSpans(sentenceEl) {
-     segmentTextNodesOnce(sentenceEl, "crRunWrapped", function (_node, text) {
-       const frag = document.createDocumentFragment();
-       let run = "";
+    if (!foundStart || !foundEnd) return null;
 
-       function flushRun() {
-         if (!run) return;
-         const span = document.createElement("span");
-         span.className = "cr-run";
-         span.dataset.crRun = "1";
-         span.dataset.crOriginalText = run;
-         span.textContent = run;
-         frag.appendChild(span);
-         run = "";
-       }
+    // Wrap the range in a highlight span
+    var highlightSpan = document.createElement("span");
+    highlightSpan.id = HIGHLIGHT_ID;
+    highlightSpan.style.setProperty("background-color", "rgba(61, 158, 255, 0.3)", "important");
+    highlightSpan.style.setProperty("border-radius", "4px", "important");
 
-       for (let i = 0; i < text.length; i++) {
-         const ch = text[i];
+    try {
+      range.surroundContents(highlightSpan);
+    } catch (e) {
+      // surroundContents fails if range crosses element boundaries.
+      // Fallback: extract and wrap.
+      var contents = range.extractContents();
+      highlightSpan.appendChild(contents);
+      range.insertNode(highlightSpan);
+    }
 
-         if (isChinese(ch)) {
-           run += ch;
-         } else {
-           flushRun();
-           frag.appendChild(document.createTextNode(ch));
-         }
-       }
+    // Return bounding rects
+    var rects = [];
+    var domRects = highlightSpan.getClientRects();
+    for (var r = 0; r < domRects.length; r++) {
+      var rect = domRects[r];
+      rects.push({ x: rect.left, y: rect.top, width: rect.width, height: rect.height });
+    }
 
-       flushRun();
-       return frag;
-     });
-   }
+    return { rects: rects };
+  }
 
-   function runFromPoint(x, y) {
-     const el = elementFromPointSafe(x, y);
-     if (!el) return null;
-     if (el.dataset && el.dataset.crRun === "1") {
-       return el;
-     }
-     return el.closest('[data-cr-run="1"]');
-   }
+  // ---------- Block navigation ----------
 
-   function markLastRun(runSpan) {
-     if (!runSpan) return null;
+  /**
+   * Collect all block-level elements that directly contain text.
+   * "Directly contain text" means the block has at least one text node
+   * child (possibly nested in inline elements) with non-whitespace content.
+   */
+  function getAllTextBlocks() {
+    var candidates = document.querySelectorAll(BLOCK_SELECTOR);
+    var blocks = [];
+    for (var i = 0; i < candidates.length; i++) {
+      var el = candidates[i];
+      // Skip blocks that contain other blocks (we want leaf blocks)
+      if (el.querySelector(BLOCK_SELECTOR)) continue;
+      // Check it has actual text
+      var text = el.textContent || "";
+      if (text.trim().length > 0) {
+        blocks.push(el);
+      }
+    }
+    return blocks;
+  }
 
-     if (window.CR._lastRunEl && window.CR._lastRunEl !== runSpan) {
-       if (window.CR._lastRunEl.id === "cr-current-run") {
-         window.CR._lastRunEl.id = "";
-       }
-     }
+  function getAdjacentBlock(direction) {
+    var current = getActiveBlock();
+    if (!current) return { atBoundary: direction === "prev" ? "start" : "end" };
 
-     window.CR._lastRunEl = runSpan;
-     runSpan.id = "cr-current-run";
-     return runSpan.id;
-   }
+    var blocks = getAllTextBlocks();
+    var idx = -1;
+    for (var i = 0; i < blocks.length; i++) {
+      if (blocks[i] === current) { idx = i; break; }
+    }
+    if (idx < 0) return { atBoundary: direction === "prev" ? "start" : "end" };
 
-   // ---------- Word segmentation (using lengths) ----------
+    var nextIdx = direction === "next" ? idx + 1 : idx - 1;
+    if (nextIdx < 0) return { atBoundary: "start" };
+    if (nextIdx >= blocks.length) return { atBoundary: "end" };
 
-   function ensureWordsForRun(runSpan, lengths) {
-     if (!runSpan) return;
+    var newBlock = blocks[nextIdx];
+    setActiveBlock(newBlock);
+    var text = newBlock.textContent || "";
+    var charIndex = direction === "next" ? 0 : Math.max(0, text.length - 1);
 
-     const text =
-       runSpan.dataset.crOriginalText != null
-         ? runSpan.dataset.crOriginalText
-         : runSpan.textContent || "";
+    return { blockText: text, charIndex: charIndex };
+  }
 
-     // Idempotent: always rebuild from original text & lengths
-     while (runSpan.firstChild) {
-       runSpan.removeChild(runSpan.firstChild);
-     }
+  function getFirstOrLastBlock(position) {
+    var blocks = getAllTextBlocks();
+    if (!blocks.length) return null;
 
-     let offset = 0;
-     lengths = Array.isArray(lengths) ? lengths : [];
+    var block = position === "first" ? blocks[0] : blocks[blocks.length - 1];
+    setActiveBlock(block);
+    var text = block.textContent || "";
+    var charIndex = position === "first" ? 0 : Math.max(0, text.length - 1);
 
-     for (let i = 0; i < lengths.length; i++) {
-       const len = lengths[i] | 0;
-       if (len <= 0) continue;
-       const end = offset + len;
-       if (end > text.length) break;
+    return { blockText: text, charIndex: charIndex };
+  }
 
-       const part = text.slice(offset, end);
-       const span = document.createElement("span");
-       span.className = "cr-word";
-       span.dataset.crWord = "1";
-       span.textContent = part;
-       runSpan.appendChild(span);
+  // ---------- Selection suppression ----------
 
-       offset = end;
-     }
+  function addClass(cls) {
+    if (!document.documentElement.classList.contains(cls)) {
+      document.documentElement.classList.add(cls);
+    }
+  }
 
-     // Any leftover chars (e.g., lengths don't cover the whole run) stay as plain text.
-     if (offset < text.length) {
-       runSpan.appendChild(
-         document.createTextNode(text.slice(offset))
-       );
-     }
+  function removeClass(cls) {
+    document.documentElement.classList.remove(cls);
+  }
 
-     runSpan.dataset.crWordsWrapped = "1";
-   }
+  // ---------- Public API ----------
 
-   function wordSpanFromPoint(x, y) {
-     const el = elementFromPointSafe(x, y);
-     if (!el) return null;
-     if (el.dataset && el.dataset.crWord === "1") return el;
-     return el.closest('[data-cr-word="1"]');
-   }
+  window.WR = {
+    __ready: true,
 
-   // ---------- Public API ----------
+    setSelectable: function (selectable) {
+      if (selectable) {
+        removeClass("wr-nonselectable");
+      } else {
+        addClass("wr-nonselectable");
+      }
+    },
 
-   window.CR = {
-     __ready: true,
-     _lastRunEl: null,
-     _lastWordEl: null,
+    /**
+     * Find the block element and character index at a screen coordinate.
+     * Returns { blockText, charIndex } or null.
+     */
+    getBlockAndCharIndexAtPoint: function (x, y) {
+      x = Number(x);
+      y = Number(y);
 
-     // keep selectable toggling
-     setSelectable: function (selectable) {
-       if (selectable) {
-         removeClass("cr-nonselectable");
-       } else {
-         addClass("cr-nonselectable");
-       }
-     },
+      var block = findBlockFromPoint(x, y);
+      if (!block) return null;
 
-     clearHighlight: function () {
-       const last = window.CR._lastWordEl;
-       if (last) {
-         last.classList.remove("cr-word-highlight");
-         last.style.removeProperty("background-color");
-         window.CR._lastWordEl = null;
-       }
-     },
+      setActiveBlock(block);
 
-     /**
-      * 1) Return context around (x, y).
-      * - Finds block, sentence, Chinese run.
-      * - Gives the run a stable ID for later (segmentAndHighlight).
-      * - Returns plain strings.
-      *
-      * Returns:
-      *   { block: string, sentence: string, run: string, runId: string|null }
-      * or null on failure.
-      */
-     getContextAtPoint: function (x, y) {
-       x = Number(x);
-       y = Number(y);
+      var charIndex = hitTestCharIndex(block, x, y);
+      if (charIndex < 0) return null;
 
-       const block = findBlockElementFromPoint(x, y);
-       if (!block) return null;
+      var text = block.textContent || "";
+      return { blockText: text, charIndex: charIndex };
+    },
 
-       // 1) Ensure sentence spans live inside the block
-       ensureSentenceSpans(block);
-       const sentence = sentenceFromPoint(x, y, block) || block;
+    /**
+     * Highlight characters [start, start+length) in the last active block.
+     * Returns { rects: [...] } or null.
+     */
+    highlightRangeInLastBlock: function (start, length) {
+      return highlightRange(Number(start), Number(length));
+    },
 
-       // 2) Ensure Chinese runs live inside that sentence
-       ensureRunSpans(sentence);
-       const run = runFromPoint(x, y);
+    /**
+     * Clear the current highlight, restoring the DOM.
+     */
+    clearHighlight: function () {
+      clearHighlight();
+    },
 
-       const runId = run ? markLastRun(run) : null;
+    /**
+     * Navigate to the adjacent block in document order.
+     * direction: "prev" or "next"
+     * Returns { blockText, charIndex } or { atBoundary: "start"|"end" }
+     */
+    getAdjacentBlock: function (direction) {
+      return getAdjacentBlock(direction);
+    },
 
-       return {
-         block: block.innerText || "",
-         sentence: sentence.innerText || "",
-         run: run ? (run.textContent || "") : "",
-         runId: runId
-       };
-     },
-
-     /**
-      * 2) Segment the last run into words (using Swift-provided lengths)
-      *    and highlight the word under (x, y).
-      *
-      * Swift drives segmentation; JS only:
-      *   - Rebuilds spans for that run
-      *   - Chooses the word under the finger
-      *   - Applies .cr-word-highlight
-      */
-     segmentAndHighlightAtPoint: function (x, y, lengths) {
-       x = Number(x);
-       y = Number(y);
-
-       const run =
-         window.CR._lastRunEl ||
-         document.getElementById("cr-current-run");
-
-       if (!run) {
-         // No known run yet; nothing to do.
-         return;
-       }
-
-       // Idempotent segmentation into .cr-word spans
-       ensureWordsForRun(run, lengths);
-
-       // Clear old highlight (also idempotent)
-       window.CR.clearHighlight();
-
-       const wordSpan = wordSpanFromPoint(x, y);
-       if (!wordSpan) return;
-
-       wordSpan.classList.add("cr-word-highlight");
-       // Force inline styles to override any Readium theme styles
-       wordSpan.style.setProperty("background-color", "rgba(61, 158, 255, 0.3)", "important");
-       window.CR._lastWordEl = wordSpan;
-         
-         // Prepare rects as return value.
-         const rects = [];
-         const domRects = wordSpan.getClientRects();
-         for (let i = 0; i < domRects.length; i++) {
-           const r = domRects[i];
-           rects.push({
-             x: r.left,
-             y: r.top,
-             width: r.width,
-             height: r.height
-           });
-         }
-         
-         return {
-             word: wordSpan.textContent,
-             rects: rects
-         }
-     }
-   };
- })();
+    /**
+     * Get the first or last text block in the document.
+     * position: "first" or "last"
+     * Returns { blockText, charIndex } or null.
+     */
+    getFirstOrLastBlock: function (position) {
+      return getFirstOrLastBlock(position);
+    }
+  };
+})();

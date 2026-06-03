@@ -1,21 +1,19 @@
 /* Disable system selection when html has this class */
-html.cr-nonselectable,
-html.cr-nonselectable body,
-html.cr-nonselectable * {
+html.wr-nonselectable,
+html.wr-nonselectable body,
+html.wr-nonselectable * {
   -webkit-user-select: none !important;
   user-select: none !important;
   -webkit-touch-callout: none !important;
 }
 
 /* Optional: cursor hint for trackpads/mice */
-html.cr-nonselectable * {
+html.wr-nonselectable * {
   cursor: default !important;
 }
 
-/* Highlighted segmented word */
-.cr-word-highlight {
-  /* This is also injected manually via
-     wordSpan.style.setProperty("background-color", "rgba(61, 158, 255, 0.3)", "important"); */
+/* Highlighted word span (applied inline by JS, this is a fallback) */
+#wr-highlight {
   background-color: rgba(61, 158, 255, 0.3);
   border-radius: 4px;
 }

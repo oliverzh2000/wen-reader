@@ -6,7 +6,12 @@ import UIKit
 import WebKit
 import ReadiumNavigator
 
-/// Handles long press gestures for word lookup and segmentation
+/// Handles long press gestures for word lookup and segmentation.
+///
+/// Architecture:
+/// - JS provides: block text + char index at a point, highlight a range, navigate blocks.
+/// - All segmentation, sentence/run detection, and word navigation live in Swift.
+/// - DOM state: at most one `id="wr-active-block"` + one `<span id="wr-highlight">`.
 @MainActor
 final class LongPressGestureHandler: NSObject, UIGestureRecognizerDelegate {
     
@@ -18,11 +23,13 @@ final class LongPressGestureHandler: NSObject, UIGestureRecognizerDelegate {
     private var longPressEndTime: CFTimeInterval = 0
     private var currentLongPressTask: Task<Void, Never>?
     
-    private var currentWordHit: WordHit?
-    /// Current run's segmentation state.
-    private var currentRunText: String?
-    private var currentContext: String?
+    /// Current state: what block, what segments, which word is highlighted.
+    private var currentBlockText: String?
+    private var currentCharIndex: Int?
+    private var currentRunRange: Range<Int>?
     private var currentSegments: [String]?
+    private var currentWordIndex: Int?
+    private var currentWordHit: WordHit?
     
     private let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
     
@@ -30,7 +37,7 @@ final class LongPressGestureHandler: NSObject, UIGestureRecognizerDelegate {
     var onWordHit: ((WordHit?) -> Void)?
     var onScrollingStateChange: ((Bool) -> Void)?
     
-    /// Whether ML-based segmentation (CWS) is enabled. Updated from settings.
+    /// Whether ML-based segmentation (CWS) is enabled.
     var cwsEnabled: Bool = true
     
     // MARK: - Setup
@@ -54,12 +61,118 @@ final class LongPressGestureHandler: NSObject, UIGestureRecognizerDelegate {
         longPress?.isEnabled = enabled
     }
     
-    /// Reset cached word hit state (call when dictionary is closed)
+    /// Reset all cached state (call when dictionary is closed).
     func resetWordHitCache() {
         currentWordHit = nil
-        currentRunText = nil
-        currentContext = nil
+        currentBlockText = nil
+        currentCharIndex = nil
+        currentRunRange = nil
         currentSegments = nil
+        currentWordIndex = nil
+    }
+    
+    // MARK: - Word Navigation (called from engine/view)
+    
+    /// Navigate to the previous word. Walks: within run → previous run → previous block.
+    func navigatePrevWord() async -> WordHit? {
+        guard let segments = currentSegments,
+              let wordIdx = currentWordIndex,
+              let runRange = currentRunRange,
+              let blockText = currentBlockText else { return nil }
+        
+        if wordIdx > 0 {
+            return await highlightWordAtIndex(wordIdx - 1, segments: segments, runRange: runRange, blockText: blockText)
+        }
+        
+        // At start of run — find previous run in this block
+        if let prevRun = findPreviousRun(before: runRange.lowerBound, in: blockText) {
+            return await segmentAndHighlightRun(range: prevRun, in: blockText, pickLast: true)
+        }
+        
+        // At start of block — navigate to previous block
+        return await navigateToAdjacentBlock(direction: "prev")
+    }
+    
+    /// Navigate to the next word. Walks: within run → next run → next block.
+    func navigateNextWord() async -> WordHit? {
+        guard let segments = currentSegments,
+              let wordIdx = currentWordIndex,
+              let runRange = currentRunRange,
+              let blockText = currentBlockText else { return nil }
+        
+        if wordIdx < segments.count - 1 {
+            return await highlightWordAtIndex(wordIdx + 1, segments: segments, runRange: runRange, blockText: blockText)
+        }
+        
+        // At end of run — find next run in this block
+        if let nextRun = findNextRun(after: runRange.upperBound, in: blockText) {
+            return await segmentAndHighlightRun(range: nextRun, in: blockText, pickLast: false)
+        }
+        
+        // At end of block — navigate to next block
+        return await navigateToAdjacentBlock(direction: "next")
+    }
+    
+    /// Expand selection by one character to the right.
+    /// If the expanded string isn't in the dictionary, the popup won't show,
+    /// but the highlight still updates so the user sees what's selected.
+    func expandRight() async -> WordHit? {
+        guard var segments = currentSegments,
+              let wordIdx = currentWordIndex,
+              let runRange = currentRunRange,
+              let blockText = currentBlockText else { return nil }
+        
+        let wordStartInRun = segments[0..<wordIdx].reduce(0) { $0 + $1.count }
+        let wordStartInBlock = runRange.lowerBound + wordStartInRun
+        let currentWord = segments[wordIdx]
+        let wordEndInBlock = wordStartInBlock + currentWord.count
+        
+        guard wordEndInBlock < blockText.count else { return nil }
+        
+        let chars = Array(blockText)
+        let newWord = currentWord + String(chars[wordEndInBlock])
+        
+        // Update segments
+        segments[wordIdx] = newWord
+        if wordIdx + 1 < segments.count {
+            let nextSeg = segments[wordIdx + 1]
+            if nextSeg.count > 1 {
+                segments[wordIdx + 1] = String(nextSeg.dropFirst())
+            } else {
+                segments.remove(at: wordIdx + 1)
+            }
+        } else {
+            // Expanding beyond the run
+            currentRunRange = runRange.lowerBound..<(runRange.upperBound + 1)
+        }
+        currentSegments = segments
+        
+        return await highlightWordAtIndex(wordIdx, segments: segments, runRange: currentRunRange!, blockText: blockText)
+    }
+    
+    /// Shrink selection by one character from the right.
+    /// The removed character becomes the start of the next segment.
+    func shrinkRight() async -> WordHit? {
+        guard var segments = currentSegments,
+              let wordIdx = currentWordIndex,
+              let runRange = currentRunRange,
+              let blockText = currentBlockText else { return nil }
+        
+        let currentWord = segments[wordIdx]
+        guard currentWord.count > 1 else { return nil }
+        
+        let newWord = String(currentWord.dropLast())
+        let removedChar = String(currentWord.suffix(1))
+        
+        segments[wordIdx] = newWord
+        if wordIdx + 1 < segments.count {
+            segments[wordIdx + 1] = removedChar + segments[wordIdx + 1]
+        } else {
+            segments.insert(removedChar, at: wordIdx + 1)
+        }
+        currentSegments = segments
+        
+        return await highlightWordAtIndex(wordIdx, segments: segments, runRange: runRange, blockText: blockText)
     }
     
     // MARK: - Gesture Handling
@@ -67,9 +180,8 @@ final class LongPressGestureHandler: NSObject, UIGestureRecognizerDelegate {
     @objc private func handleLongPress(_ gr: UILongPressGestureRecognizer) {
         guard let hostView = gr.view else { return }
         
+        // Convert gesture point to navigator root coordinates
         let pInHost = gr.location(in: hostView)
-        
-        // Convert to navigator root coords
         let rootPoint: CGPoint
         if let root = navigatorVC?.view, hostView !== root {
             rootPoint = hostView.convert(pInHost, to: root)
@@ -80,9 +192,7 @@ final class LongPressGestureHandler: NSObject, UIGestureRecognizerDelegate {
         switch gr.state {
         case .began:
             isMagnifierActive = true
-            onScrollingStateChange?(false)
-            // Check if this new long-press started on the currently highlighted word.
-            // If so, we'll sub-split it. This flag is only set here, not on .changed.
+            onScrollingStateChange?(false) // Disable scrolling during long press
             processLongPress(at: rootPoint, isBegan: true)
             
         case .changed:
@@ -92,13 +202,9 @@ final class LongPressGestureHandler: NSObject, UIGestureRecognizerDelegate {
             if isMagnifierActive {
                 isMagnifierActive = false
                 onScrollingStateChange?(true) // Re-enable scrolling
-                
-                // Only send nil word hits on finger lift if no word is selected
-                if currentWordHit == nil {
-                    onWordHit?(nil)
-                }
-                
-                // Mark that a long press just finished
+                // Only send nil word hit on finger lift if no word was selected
+                if currentWordHit == nil { onWordHit?(nil) }
+                // Mark time so we can suppress the spurious tap that follows a long press
                 longPressEndTime = CACurrentMediaTime()
             }
             
@@ -112,13 +218,13 @@ final class LongPressGestureHandler: NSObject, UIGestureRecognizerDelegate {
     func gestureRecognizer(
         _ gestureRecognizer: UIGestureRecognizer,
         shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
-    ) -> Bool {
-        return true
-    }
+    ) -> Bool { true }
     
     // MARK: - Tap Suppression
     
-    /// Returns true if a long-press ended very recently and this tap should be suppressed
+    /// Returns true if a long-press ended very recently and this tap should be suppressed.
+    /// iOS delivers a spurious UITap immediately after UILongPress ends — this prevents
+    /// it from toggling chrome or dismissing the dictionary.
     func consumeSuppressedTap(
         threshold: CFTimeInterval = ReaderConstants.Interaction.tapSuppressionWindow
     ) -> Bool {
@@ -130,8 +236,14 @@ final class LongPressGestureHandler: NSObject, UIGestureRecognizerDelegate {
         return false
     }
     
-    // MARK: - Word Hit Processing
+    // MARK: - Core Processing
     
+    /// Main long-press handler. Flow:
+    /// 1. Ask JS for block text + char index at the finger position
+    /// 2. Check if this is a sub-split (re-press on highlighted word)
+    /// 3. Find the CJK run containing the pressed character
+    /// 4. Segment the run (or reuse cached segmentation)
+    /// 5. Highlight the word under the finger and emit a WordHit
     private func processLongPress(at rootPoint: CGPoint, isBegan: Bool) {
         currentLongPressTask?.cancel()
         
@@ -141,254 +253,362 @@ final class LongPressGestureHandler: NSObject, UIGestureRecognizerDelegate {
             
             let webViews = ViewHierarchyHelper.findWebViews(in: root)
             
-            fetchContext(at: rootPoint, from: webViews) { [weak self] block, sentence, run in
-                guard let self, !run.isEmpty else {
-                    self?.currentWordHit = nil
+            // Phase 1: Get block text and char index from JS
+            guard let result = await callJS(
+                "getBlockAndCharIndexAtPoint",
+                args: rootPoint,
+                in: webViews
+            ),
+            let blockText = result["blockText"] as? String,
+            let charIndex = result["charIndex"] as? Int else { return }
+            
+            guard !Task.isCancelled else { return }
+            
+            // Check sub-split: new press on already-highlighted word
+            if isBegan, let _ = currentWordHit,
+               currentBlockText == blockText,
+               let segments = currentSegments, let wordIdx = currentWordIndex,
+               let runRange = currentRunRange {
+                let wordStartInRun = segments[0..<wordIdx].reduce(0) { $0 + $1.count }
+                let wordStartInBlock = runRange.lowerBound + wordStartInRun
+                let wordEndInBlock = wordStartInBlock + segments[wordIdx].count
+                
+                if charIndex >= wordStartInBlock && charIndex < wordEndInBlock {
+                    performSubSplit(wordIdx: wordIdx, runRange: runRange, blockText: blockText, charIndex: charIndex)
                     return
                 }
-                
-                Task {
-                    let context = block
-                    
-                    // Determine if we need to (re)segment this run
-                    if self.currentRunText != run {
-                        let service = SegmentationServiceFactory.active(cwsEnabled: self.cwsEnabled)
-                        let segments = await service.segment(run: run, sentence: context)
-                        self.currentRunText = run
-                        self.currentContext = context
-                        self.currentSegments = segments
-                    }
-                    
-                    guard let segments = self.currentSegments else { return }
-                    let segmentLengths = segments.map { $0.count }
-                    
-                    guard !Task.isCancelled else { return }
-                    
-                    // Hit-test to find which word the finger is on
-                    self.segmentAndHighlight(
-                        at: rootPoint,
-                        lengths: segmentLengths,
-                        in: webViews
-                    ) { [weak self] word, rects in
-                        guard let self else { return }
-                        guard SpanScorerSegmentationService.isLookupable(word) else { return }
-                        
-                        let isSameWord = (word == self.currentWordHit?.word && rects == self.currentWordHit?.rects)
-                        
-                        if isSameWord && !isBegan {
-                            // Finger dragging within the same word — do nothing
-                            return
-                        }
-                        
-                        if isSameWord && isBegan {
-                            // New long-press started on the already-highlighted word → sub-split
-                            self.performSubSplit(
-                                word: word,
-                                run: run,
-                                context: context,
-                                rootPoint: rootPoint,
-                                webViews: webViews,
-                                block: block,
-                                sentence: sentence
-                            )
-                            return
-                        }
-                        
-                        // Different word (or first press) — highlight it
-                        let wordHit = WordHit(
-                            block: block,
-                            sentence: sentence,
-                            run: run,
-                            word: word,
-                            hitPoint: rootPoint,
-                            rects: rects
-                        )
-                        self.currentWordHit = wordHit
-                        self.onWordHit?(wordHit)
-                        self.impactFeedback.impactOccurred()
-                    }
-                }
+            }
+            
+            // Phase 2: Find the CJK run containing this character
+            let chars = Array(blockText)
+            guard charIndex < chars.count, chars[charIndex].isCJK else { return }
+            
+            var runStart = charIndex
+            var runEnd = charIndex + 1
+            while runStart > 0 && chars[runStart - 1].isCJK { runStart -= 1 }
+            while runEnd < chars.count && chars[runEnd].isCJK { runEnd += 1 }
+            let runRange = runStart..<runEnd
+            let runText = String(chars[runStart..<runEnd])
+            
+            // Phase 3: Segment the run (reuse if same)
+            if currentBlockText != blockText || currentRunRange != runRange {
+                let service = SegmentationServiceFactory.active(cwsEnabled: cwsEnabled)
+                // Convert to simplified for CWS/WSD (models trained on simplified)
+                let segments = await service.segment(run: runText.toSimplified, sentence: blockText.toSimplified)
+                guard !Task.isCancelled else { return }
+                currentBlockText = blockText
+                currentRunRange = runRange
+                // Map segments back to original characters (trad↔simp is 1:1 char mapping)
+                currentSegments = mapSegmentsToOriginal(segments, originalRun: runText)
+            }
+            
+            guard let segments = currentSegments, !segments.isEmpty else { return }
+            
+            // Phase 4: Find which word the char belongs to
+            let wordIdx = wordIndexForChar(at: charIndex - runStart, in: segments)
+            let word = segments[wordIdx]
+            
+            // Skip if dragging within same word
+            if !isBegan, word == currentWordHit?.word { return }
+            guard SpanScorerSegmentationService.isLookupable(word) else { return }
+            
+            // Phase 5: Highlight and emit
+            if await highlightWordAtIndex(wordIdx, segments: segments, runRange: runRange, blockText: blockText) != nil {
+                impactFeedback.impactOccurred()
             }
         }
     }
     
     // MARK: - Sub-splitting
     
+    /// Re-segment the currently highlighted word into smaller sub-words.
+    /// Triggered when the user long-presses on an already-highlighted word.
+    /// Uses the span scorer with the current word masked out, forcing DP
+    /// to find the best sub-segmentation.
     private func performSubSplit(
-        word: String,
-        run: String,
-        context: String,
-        rootPoint: CGPoint,
-        webViews: [WKWebView],
-        block: String,
-        sentence: String
+        wordIdx: Int,
+        runRange: Range<Int>,
+        blockText: String,
+        charIndex: Int
     ) {
-        guard word.count > 1,
-              cwsEnabled,
-              let spanScorer = SegmentationServiceFactory.spanScorer,
-              var segments = currentSegments else { return }
+        guard var segments = currentSegments else { return }
+        let word = segments[wordIdx]
+        guard word.count > 1, cwsEnabled,
+              let spanScorer = SegmentationServiceFactory.spanScorer else { return }
         
-        // Find the word's offset in the run
+        let chars = Array(blockText)
+        let runText = String(chars[runRange])
+        let wordStartInRun = segments[0..<wordIdx].reduce(0) { $0 + $1.count }
+        
+        guard let subSegments = spanScorer.resegment(
+            originalRun: runText,
+            sentence: blockText,
+            wordToSplit: word,
+            wordStartInRun: wordStartInRun
+        ), subSegments.count > 1 || subSegments.first != word else { return }
+        
+        segments.replaceSubrange(wordIdx...wordIdx, with: subSegments)
+        currentSegments = segments
+        
+        let newWordIdx = wordIndexForChar(at: charIndex - runRange.lowerBound, in: segments)
+        
+        Task {
+            if await highlightWordAtIndex(newWordIdx, segments: segments, runRange: runRange, blockText: blockText) != nil {
+                impactFeedback.impactOccurred()
+            }
+        }
+    }
+    
+    // MARK: - Highlighting
+    
+    /// Highlight a specific word by index in the current segments array.
+    /// Calls JS to render the highlight, then builds and emits a WordHit.
+    @discardableResult
+    private func highlightWordAtIndex(
+        _ wordIdx: Int,
+        segments: [String],
+        runRange: Range<Int>,
+        blockText: String
+    ) async -> WordHit? {
+        guard wordIdx >= 0, wordIdx < segments.count else { return nil }
+        
+        let word = segments[wordIdx]
+        let wordStartInRun = segments[0..<wordIdx].reduce(0) { $0 + $1.count }
+        let wordStartInBlock = runRange.lowerBound + wordStartInRun
+        
+        currentWordIndex = wordIdx
+        currentSegments = segments
+        currentRunRange = runRange
+        currentBlockText = blockText
+        
+        guard let root = navigatorVC?.view else { return nil }
+        let webViews = ViewHierarchyHelper.findWebViews(in: root)
+        
+        let rects = await callJSForRects(
+            "highlightRangeInLastBlock",
+            args: "\(wordStartInBlock), \(word.count)",
+            in: webViews
+        )
+        
+        guard !word.isEmpty else { return nil }
+        
+        let hitPoint = rects.first.map { CGPoint(x: $0.midX, y: $0.midY) } ?? .zero
+        
+        let wordHit = WordHit(
+            block: blockText,
+            sentence: extractSentence(around: wordStartInBlock, in: blockText),
+            run: String(Array(blockText)[runRange]),
+            word: word,
+            hitPoint: hitPoint,
+            rects: rects
+        )
+        
+        currentWordHit = wordHit
+        onWordHit?(wordHit)
+        return wordHit
+    }
+    
+    // MARK: - Run Navigation
+    
+    /// Find the next contiguous CJK run starting at or after `offset` in the block.
+    private func findNextRun(after offset: Int, in blockText: String) -> Range<Int>? {
+        let chars = Array(blockText)
+        var i = offset
+        while i < chars.count && !chars[i].isCJK { i += 1 }
+        guard i < chars.count else { return nil }
+        let start = i
+        while i < chars.count && chars[i].isCJK { i += 1 }
+        return start..<i
+    }
+    
+    /// Find the previous contiguous CJK run ending before `offset` in the block.
+    private func findPreviousRun(before offset: Int, in blockText: String) -> Range<Int>? {
+        let chars = Array(blockText)
+        var i = offset - 1
+        while i >= 0 && !chars[i].isCJK { i -= 1 }
+        guard i >= 0 else { return nil }
+        let end = i + 1
+        while i > 0 && chars[i - 1].isCJK { i -= 1 }
+        return i..<end
+    }
+    
+    /// Segment a new run and highlight its first or last word.
+    /// Used when navigating into an adjacent run or block.
+    private func segmentAndHighlightRun(
+        range runRange: Range<Int>,
+        in blockText: String,
+        pickLast: Bool
+    ) async -> WordHit? {
+        let chars = Array(blockText)
+        let runText = String(chars[runRange])
+        
+        let service = SegmentationServiceFactory.active(cwsEnabled: cwsEnabled)
+        let segments = await service.segment(run: runText.toSimplified, sentence: blockText.toSimplified)
+        guard !segments.isEmpty else { return nil }
+        
+        // Map back to original characters
+        let originalSegments = mapSegmentsToOriginal(segments, originalRun: runText)
+        
+        currentBlockText = blockText
+        currentRunRange = runRange
+        currentSegments = originalSegments
+        
+        let wordIdx = pickLast ? originalSegments.count - 1 : 0
+        return await highlightWordAtIndex(wordIdx, segments: originalSegments, runRange: runRange, blockText: blockText)
+    }
+    
+    /// Navigate to an adjacent block element in the DOM and highlight its first/last word.
+    /// Returns nil if at the document boundary (chapter edge).
+    private func navigateToAdjacentBlock(direction: String) async -> WordHit? {
+        guard let root = navigatorVC?.view else { return nil }
+        let webViews = ViewHierarchyHelper.findWebViews(in: root)
+        
+        guard let result = await callJS("getAdjacentBlock", args: "\"\(direction)\"", in: webViews),
+              result["atBoundary"] == nil,
+              let blockText = result["blockText"] as? String else {
+            return nil // At boundary or error
+        }
+        
+        let pickLast = (direction == "prev")
+        let chars = Array(blockText)
+        let runRange = pickLast
+            ? findPreviousRun(before: chars.count, in: blockText)
+            : findNextRun(after: 0, in: blockText)
+        
+        guard let range = runRange else { return nil }
+        return await segmentAndHighlightRun(range: range, in: blockText, pickLast: pickLast)
+    }
+    
+    // MARK: - Helpers
+    
+    /// Map simplified segments back to original (possibly traditional) characters.
+    /// Since Trad↔Simp is a 1:1 character mapping, we just slice the original
+    /// run using segment lengths from the simplified segmentation.
+    private func mapSegmentsToOriginal(_ simplifiedSegments: [String], originalRun: String) -> [String] {
+        let chars = Array(originalRun)
+        var result: [String] = []
         var offset = 0
-        var wordIndex: Int?
+        for seg in simplifiedSegments {
+            let len = seg.count
+            let end = min(offset + len, chars.count)
+            result.append(String(chars[offset..<end]))
+            offset = end
+        }
+        return result
+    }
+    
+    /// Given a character offset within a run, find which segment (word) it belongs to.
+    private func wordIndexForChar(at charOffsetInRun: Int, in segments: [String]) -> Int {
+        var offset = 0
         for (i, seg) in segments.enumerated() {
-            if seg == word {
-                wordIndex = i
-                break
+            if charOffsetInRun >= offset && charOffsetInRun < offset + seg.count {
+                return i
             }
             offset += seg.count
         }
-        guard let idx = wordIndex else { return }
+        return segments.count - 1
+    }
+    
+    /// Extract the sentence containing `charIndex` by walking to sentence boundary punctuation.
+    private func extractSentence(around charIndex: Int, in blockText: String) -> String {
+        let chars = Array(blockText)
+        let boundaries: Set<Character> = ["。", "！", "？", "!", "?", "\n"]
         
-        guard let subSegments = spanScorer.resegment(
-            originalRun: run,
-            sentence: context,
-            wordToSplit: word,
-            wordStartInRun: offset
-        ), subSegments.count > 1 || subSegments.first != word else {
-            return // Can't split further
+        var start = charIndex
+        while start > 0 && !boundaries.contains(chars[start - 1]) { start -= 1 }
+        
+        var end = charIndex
+        while end < chars.count && !boundaries.contains(chars[end]) { end += 1 }
+        if end < chars.count && boundaries.contains(chars[end]) { end += 1 }
+        
+        return String(chars[start..<end])
+    }
+    
+    // MARK: - JS Communication (unified)
+    
+    /// Call a WR function by name with pre-formatted arguments string.
+    /// For point-based calls, pass `rootPoint` and it will be converted per web view.
+    private func callJS(
+        _ functionName: String,
+        args rootPoint: CGPoint,
+        in webViews: [WKWebView]
+    ) async -> [String: Any]? {
+        for webView in webViews {
+            let local = convertToWebViewCoordinates(rootPoint, webView: webView)
+            let argsStr = "\(local.x), \(local.y)"
+            if let result = await evaluateWR(functionName, args: argsStr, in: webView) {
+                return result
+            }
         }
+        return nil
+    }
+    
+    /// Call a WR function with a pre-formatted args string (non-point-based).
+    private func callJS(
+        _ functionName: String,
+        args: String,
+        in webViews: [WKWebView]
+    ) async -> [String: Any]? {
+        for webView in webViews {
+            if let result = await evaluateWR(functionName, args: args, in: webView) {
+                return result
+            }
+        }
+        return nil
+    }
+    
+    /// Call a WR function that returns `{ rects: [...] }` and parse into [CGRect].
+    private func callJSForRects(
+        _ functionName: String,
+        args: String,
+        in webViews: [WKWebView]
+    ) async -> [CGRect] {
+        guard let result = await callJS(functionName, args: args, in: webViews),
+              let rectArray = result["rects"] as? [[String: Any]] else { return [] }
         
-        // Replace the word with its sub-segments
-        segments.replaceSubrange(idx...idx, with: subSegments)
-        currentSegments = segments
-        
-        // Re-highlight with new segmentation
-        let segmentLengths = segments.map { $0.count }
-        segmentAndHighlight(
-            at: rootPoint,
-            lengths: segmentLengths,
-            in: webViews
-        ) { [weak self] newWord, rects in
-            guard let self else { return }
-            guard SpanScorerSegmentationService.isLookupable(newWord) else { return }
-            
-            let wordHit = WordHit(
-                block: block,
-                sentence: sentence,
-                run: run,
-                word: newWord,
-                hitPoint: rootPoint,
-                rects: rects
-            )
-            self.currentWordHit = wordHit
-            self.onWordHit?(wordHit)
-            self.impactFeedback.impactOccurred()
+        return rectArray.compactMap { rd in
+            guard let x = (rd["x"] as? NSNumber)?.doubleValue,
+                  let y = (rd["y"] as? NSNumber)?.doubleValue,
+                  let w = (rd["width"] as? NSNumber)?.doubleValue,
+                  let h = (rd["height"] as? NSNumber)?.doubleValue
+            else { return nil }
+            return CGRect(x: x, y: y, width: w, height: h)
         }
     }
     
-    // MARK: - WebView Communication
-    
-    private func fetchContext(
-        at rootPoint: CGPoint,
-        from webViews: [WKWebView],
-        completion: @escaping (_ block: String, _ sentence: String, _ run: String) -> Void
-    ) {
-        var completionCalled = false
-        
-        for webView in webViews {
-            let local = convertToWebViewCoordinates(rootPoint, webView: webView)
-            
-            let js = """
-                (function() {
-                  try {
-                    if (window.CR && window.CR.getContextAtPoint) {
-                      return window.CR.getContextAtPoint(\(local.x), \(local.y));
-                    }
-                  } catch (e) {
-                    console.error("CR.getContextAtPoint error", e);
-                  }
-                  return null;
-                })();
-                """
-            
-            webView.evaluateJavaScript(js) { result, error in
-                guard
-                    !completionCalled,
-                    error == nil,
-                    let dict = result as? [String: Any],
-                    let block = dict["block"] as? String,
-                    let sentence = dict["sentence"] as? String,
-                    let run = dict["run"] as? String
-                else {
-                    return
-                }
-                completionCalled = true
-                completion(block, sentence, run)
-            }
-        }
-    }
-    
-    private func segmentAndHighlight(
-        at rootPoint: CGPoint,
-        lengths: [Int],
-        in webViews: [WKWebView],
-        completion: @escaping (_ word: String, _ rects: [CGRect]) -> Void
-    ) {
-        var completionCalled = false
-        
-        for webView in webViews {
-            let local = convertToWebViewCoordinates(rootPoint, webView: webView)
-            
-            // Serialize lengths to JS array
-            let lengthsJSON: String
-            do {
-                let data = try JSONSerialization.data(withJSONObject: lengths)
-                if let jsonString = String(data: data, encoding: .utf8) {
-                    lengthsJSON = jsonString
-                } else {
-                    Log.error("Failed to convert lengths data to UTF-8 string")
-                    lengthsJSON = "[]"
-                }
-            } catch {
-                Log.error("Failed to serialize segmentation lengths to JSON: \(error)")
-                lengthsJSON = "[]"
-            }
-            
-            let js = """
-                (function() {
-                  try {
-                    if (window.CR && window.CR.segmentAndHighlightAtPoint) {
-                      return window.CR.segmentAndHighlightAtPoint(\(local.x), \(local.y), \(lengthsJSON));
-                    }
-                  } catch (e) {
-                    console.error("CR.segmentAndHighlightAtPoint error", e);
-                  }
-                  return null;
-                })();
-                """
-            
-            webView.evaluateJavaScript(js) { result, error in
-                guard
-                    !completionCalled,
-                    error == nil,
-                    let dict = result as? [String: Any],
-                    let word = dict["word"] as? String,
-                    let rectArray = dict["rects"] as? [[String: Any]]
-                else {
-                    return
-                }
-                
-                let rects: [CGRect] = rectArray.compactMap { rd in
-                    guard
-                        let x = (rd["x"] as? NSNumber)?.doubleValue,
-                        let y = (rd["y"] as? NSNumber)?.doubleValue,
-                        let w = (rd["width"] as? NSNumber)?.doubleValue,
-                        let h = (rd["height"] as? NSNumber)?.doubleValue
-                    else {
-                        return nil
-                    }
-                    return CGRect(x: x, y: y, width: w, height: h)
-                }
-                
-                completionCalled = true
-                completion(word, rects)
-            }
-        }
+    /// Core JS evaluation helper — wraps the call in try/catch and null checks.
+    private func evaluateWR(
+        _ functionName: String,
+        args: String,
+        in webView: WKWebView
+    ) async -> [String: Any]? {
+        let js = "(function(){try{if(window.WR&&window.WR.\(functionName))return window.WR.\(functionName)(\(args));} catch(e){}return null;})();"
+        return try? await webView.evaluateJavaScript(js) as? [String: Any]
     }
     
     private func convertToWebViewCoordinates(_ point: CGPoint, webView: WKWebView) -> CGPoint {
         guard let root = navigatorVC?.view else { return point }
         return root.convert(point, to: webView)
+    }
+}
+
+// MARK: - Character.isCJK
+
+extension Character {
+    /// Whether this character is a CJK ideograph (Han script).
+    var isCJK: Bool {
+        // Uses Unicode script property via regex — delegates to ICU,
+        // so it stays correct as new Unicode versions add blocks.
+        return String(self).range(of: "\\p{Script=Han}", options: .regularExpression) != nil
+    }
+}
+
+// MARK: - String Trad→Simp conversion
+
+extension String {
+    /// Convert Traditional Chinese to Simplified using ICU transforms.
+    /// Returns the original string if conversion fails or produces no change.
+    var toSimplified: String {
+        self.applyingTransform(StringTransform("Hant-Hans"), reverse: false) ?? self
     }
 }

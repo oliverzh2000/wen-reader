@@ -46,15 +46,15 @@ final class WebViewInjector {
         let cssJS = """
             (function(){
               try {
-                if (!document.getElementById('cr-nonselectable-style')) {
+                if (!document.getElementById('wr-style')) {
                   const s = document.createElement('style');
-                  s.id='cr-nonselectable-style';
+                  s.id='wr-style';
                   s.type='text/css';
                   s.appendChild(document.createTextNode(\(cssJSON)));
                   document.head.appendChild(s);
                 }
               } catch(e) {
-                console.error('CR CSS injection failed:', e);
+                console.error('CSS injection failed:', e);
               }
             })();
             """
@@ -73,7 +73,7 @@ final class WebViewInjector {
                 script.appendChild(document.createTextNode(\(jsJSON)));
                 document.head.appendChild(script);
               } catch(e) {
-                console.error('CR JS injection failed:', e);
+                console.error('JS injection failed:', e);
               }
             })();
             """
@@ -92,7 +92,7 @@ final class WebViewInjector {
     /// Enable or disable text selection in all webviews
     func setSelectionEnabled(_ enabled: Bool, in webViews: [WKWebView]) {
         let js = """
-            try { window.CR && window.CR.setSelectable(\(enabled ? "true" : "false")); } catch(e) { /* noop */ }
+            try { window.WR && window.WR.setSelectable(\(enabled ? "true" : "false")); } catch(e) { /* noop */ }
             """
         evaluateInAll(webViews: webViews, javascript: js)
     }
@@ -102,12 +102,10 @@ final class WebViewInjector {
         let js = """
             (function() {
               try {
-                if (window.CR && window.CR.clearHighlight) {
-                  return window.CR.clearHighlight();
+                if (window.WR && window.WR.clearHighlight) {
+                  window.WR.clearHighlight();
                 }
-              } catch (e) {
-                console.error("CR.clearHighlight error", e);
-              }
+              } catch (e) {}
               return null;
             })();
             """

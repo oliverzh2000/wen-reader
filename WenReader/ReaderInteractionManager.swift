@@ -96,6 +96,28 @@ final class ReaderInteractionManager {
         gestureHandler.cwsEnabled = enabled
     }
     
+    // MARK: - Word Navigation
+    
+    /// Navigate to the previous word.
+    func navigatePrevWord() async -> WordHit? {
+        return await gestureHandler.navigatePrevWord()
+    }
+    
+    /// Navigate to the next word.
+    func navigateNextWord() async -> WordHit? {
+        return await gestureHandler.navigateNextWord()
+    }
+    
+    /// Expand the current selection by one character to the right.
+    func expandRight() async -> WordHit? {
+        return await gestureHandler.expandRight()
+    }
+    
+    /// Shrink the current selection by one character from the right.
+    func shrinkRight() async -> WordHit? {
+        return await gestureHandler.shrinkRight()
+    }
+    
     // MARK: - Private Helpers
     
     private func applyMode(_ mode: Mode) {

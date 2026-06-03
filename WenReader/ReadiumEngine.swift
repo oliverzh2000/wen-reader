@@ -77,6 +77,32 @@ final class ReadiumEngine: ObservableObject {
     func popDictionary() {
         dictionaryManager.pop()
     }
+    
+    // MARK: - Word Navigation
+    
+    func navigatePrevWord() async {
+        guard let hit = await interactionManager.navigatePrevWord() else { return }
+        currentWordHit = hit
+        await updateDictionaryResult(for: hit.word, sentence: hit.sentence)
+    }
+    
+    func navigateNextWord() async {
+        guard let hit = await interactionManager.navigateNextWord() else { return }
+        currentWordHit = hit
+        await updateDictionaryResult(for: hit.word, sentence: hit.sentence)
+    }
+    
+    func expandSelection() async {
+        guard let hit = await interactionManager.expandRight() else { return }
+        currentWordHit = hit
+        await updateDictionaryResult(for: hit.word, sentence: hit.sentence)
+    }
+    
+    func shrinkSelection() async {
+        guard let hit = await interactionManager.shrinkRight() else { return }
+        currentWordHit = hit
+        await updateDictionaryResult(for: hit.word, sentence: hit.sentence)
+    }
 
     // MARK: - Open Publication
     
