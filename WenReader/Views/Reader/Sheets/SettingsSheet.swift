@@ -91,6 +91,37 @@ struct SettingsSheet: View {
                         Text("Text Selection").tag(ReaderInteractionMode.system)
                     }
                     .pickerStyle(.automatic)
+                    
+                    VStack(alignment: .leading) {
+                        Text("Auto-Advance Speed")
+                        Slider(
+                            value: Binding(
+                                get: {
+                                    // Log scale: map interval [0.3, 3.0] → slider [0, 1]
+                                    // left=slow (3.0s, 0.3 ch/s), right=fast (0.3s, 3.3 ch/s)
+                                    let logMin = log(0.3)
+                                    let logMax = log(3.0)
+                                    let logVal = log(settingsStore.settings.autoAdvanceInterval)
+                                    return 1.0 - (logVal - logMin) / (logMax - logMin)
+                                },
+                                set: { newValue in
+                                    let logMin = log(0.3)
+                                    let logMax = log(3.0)
+                                    let logVal = logMin + (1.0 - newValue) * (logMax - logMin)
+                                    settingsStore.settings.autoAdvanceInterval = exp(logVal)
+                                }
+                            ),
+                            in: 0...1
+                        ) {
+                        } minimumValueLabel: {
+                            Text("")
+                        } maximumValueLabel: {
+                            Text(
+                                "\(String(format: "%.1f", 1.0 / settingsStore.settings.autoAdvanceInterval)) w/s"
+                            )
+                            .foregroundStyle(.secondary)
+                        }
+                    }
                 }
 
                 Section {

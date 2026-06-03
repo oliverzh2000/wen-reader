@@ -341,6 +341,21 @@
     },
 
     /**
+     * Check whether the current highlight is visible within the viewport.
+     * Returns { visible: true/false } or null if no highlight exists.
+     */
+    isHighlightVisible: function () {
+      var hl = document.getElementById(HIGHLIGHT_ID);
+      if (!hl) return null;
+      var rect = hl.getBoundingClientRect();
+      var vw = window.innerWidth || document.documentElement.clientWidth;
+      var vh = window.innerHeight || document.documentElement.clientHeight;
+      // Visible if at least part of the highlight is within the viewport
+      var visible = rect.right > 0 && rect.left < vw && rect.bottom > 0 && rect.top < vh;
+      return { visible: visible };
+    },
+
+    /**
      * Navigate to the adjacent block in document order.
      * direction: "prev" or "next"
      * Returns { blockText, charIndex } or { atBoundary: "start"|"end" }

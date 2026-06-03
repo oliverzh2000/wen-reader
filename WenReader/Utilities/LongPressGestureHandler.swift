@@ -30,6 +30,12 @@ final class LongPressGestureHandler: NSObject, UIGestureRecognizerDelegate {
     private var currentSegments: [String]?
     private var currentWordIndex: Int?
     private var currentWordHit: WordHit?
+    /// Whether the current segments have been manually adjusted (expand/shrink).
+    /// If true, navigateWord will re-segment fresh before moving.
+    private var segmentsManuallyAdjusted = false
+    /// Set to true after a navigateWord call leaves the highlight off-screen.
+    /// The caller can read this to decide whether to page-flip.
+    private(set) var highlightIsOffScreen = false
     
     private let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
     
@@ -69,48 +75,78 @@ final class LongPressGestureHandler: NSObject, UIGestureRecognizerDelegate {
         currentRunRange = nil
         currentSegments = nil
         currentWordIndex = nil
+        segmentsManuallyAdjusted = false
     }
     
     // MARK: - Word Navigation (called from engine/view)
     
-    /// Navigate to the previous word. Walks: within run → previous run → previous block.
-    func navigatePrevWord() async -> WordHit? {
-        guard let segments = currentSegments,
-              let wordIdx = currentWordIndex,
-              let runRange = currentRunRange,
-              let blockText = currentBlockText else { return nil }
-        
-        if wordIdx > 0 {
-            return await highlightWordAtIndex(wordIdx - 1, segments: segments, runRange: runRange, blockText: blockText)
-        }
-        
-        // At start of run — find previous run in this block
-        if let prevRun = findPreviousRun(before: runRange.lowerBound, in: blockText) {
-            return await segmentAndHighlightRun(range: prevRun, in: blockText, pickLast: true)
-        }
-        
-        // At start of block — navigate to previous block
-        return await navigateToAdjacentBlock(direction: "prev")
-    }
+    enum Direction { case prev, next }
     
-    /// Navigate to the next word. Walks: within run → next run → next block.
-    func navigateNextWord() async -> WordHit? {
-        guard let segments = currentSegments,
-              let wordIdx = currentWordIndex,
+    /// Navigate to the previous or next word.
+    /// Walks: within current run → adjacent run in same block → adjacent block.
+    /// If segments were manually adjusted (expand/shrink), re-segments the run first.
+    func navigateWord(_ direction: Direction) async -> WordHit? {
+        guard var segments = currentSegments,
+              var wordIdx = currentWordIndex,
               let runRange = currentRunRange,
               let blockText = currentBlockText else { return nil }
         
-        if wordIdx < segments.count - 1 {
-            return await highlightWordAtIndex(wordIdx + 1, segments: segments, runRange: runRange, blockText: blockText)
+        // If segments were manually adjusted, re-segment from scratch
+        // to get clean word boundaries before navigating
+        if segmentsManuallyAdjusted {
+            let chars = Array(blockText)
+            let runText = String(chars[runRange])
+            let service = SegmentationServiceFactory.active(cwsEnabled: cwsEnabled)
+            let freshSegments = await service.segment(run: runText.toSimplified, sentence: blockText.toSimplified)
+            let originalSegments = mapSegmentsToOriginal(freshSegments, originalRun: runText)
+            currentSegments = originalSegments
+            segments = originalSegments
+            segmentsManuallyAdjusted = false
+            
+            // Anchor navigation on the character just past the adjusted selection's end
+            // (for next) or just before its start (for prev). This makes behavior
+            // consistent with sub-split: navigate moves away from the adjusted word.
+            let adjustedWord = currentWordHit?.word ?? ""
+            let adjustedStartInRun: Int
+            if let hit = currentWordHit, let range = runText.range(of: hit.word) {
+                adjustedStartInRun = runText.distance(from: runText.startIndex, to: range.lowerBound)
+            } else {
+                adjustedStartInRun = 0
+            }
+            
+            let anchorCharInRun: Int
+            if direction == .next {
+                // Start on the word containing the char just past the adjusted selection
+                anchorCharInRun = min(adjustedStartInRun + adjustedWord.count, runText.count - 1)
+            } else {
+                // Start on the word containing the char just before the adjusted selection
+                anchorCharInRun = max(adjustedStartInRun - 1, 0)
+            }
+            
+            wordIdx = wordIndexForChar(at: anchorCharInRun, in: originalSegments)
+            currentWordIndex = wordIdx
+            // Highlight this word directly (don't step further)
+            return await highlightWordAtIndex(wordIdx, segments: originalSegments, runRange: runRange, blockText: blockText)
         }
         
-        // At end of run — find next run in this block
-        if let nextRun = findNextRun(after: runRange.upperBound, in: blockText) {
-            return await segmentAndHighlightRun(range: nextRun, in: blockText, pickLast: false)
+        // Step within current run
+        let nextIdx = (direction == .next) ? wordIdx + 1 : wordIdx - 1
+        if nextIdx >= 0 && nextIdx < segments.count {
+            return await highlightWordAtIndex(nextIdx, segments: segments, runRange: runRange, blockText: blockText)
         }
         
-        // At end of block — navigate to next block
-        return await navigateToAdjacentBlock(direction: "next")
+        // At edge of run — find adjacent run in this block
+        let adjacentRun = (direction == .next)
+            ? findNextRun(after: runRange.upperBound, in: blockText)
+            : findPreviousRun(before: runRange.lowerBound, in: blockText)
+        
+        if let run = adjacentRun {
+            return await segmentAndHighlightRun(range: run, in: blockText, pickLast: direction == .prev)
+        }
+        
+        // At edge of block — navigate to adjacent block
+        let jsDirection = (direction == .next) ? "next" : "prev"
+        return await navigateToAdjacentBlock(direction: jsDirection)
     }
     
     /// Expand selection by one character to the right.
@@ -130,6 +166,9 @@ final class LongPressGestureHandler: NSObject, UIGestureRecognizerDelegate {
         guard wordEndInBlock < blockText.count else { return nil }
         
         let chars = Array(blockText)
+        // Don't expand into non-CJK characters
+        guard chars[wordEndInBlock].isCJK else { return nil }
+        
         let newWord = currentWord + String(chars[wordEndInBlock])
         
         // Update segments
@@ -146,6 +185,7 @@ final class LongPressGestureHandler: NSObject, UIGestureRecognizerDelegate {
             currentRunRange = runRange.lowerBound..<(runRange.upperBound + 1)
         }
         currentSegments = segments
+        segmentsManuallyAdjusted = true
         
         return await highlightWordAtIndex(wordIdx, segments: segments, runRange: currentRunRange!, blockText: blockText)
     }
@@ -171,6 +211,7 @@ final class LongPressGestureHandler: NSObject, UIGestureRecognizerDelegate {
             segments.insert(removedChar, at: wordIdx + 1)
         }
         currentSegments = segments
+        segmentsManuallyAdjusted = true
         
         return await highlightWordAtIndex(wordIdx, segments: segments, runRange: runRange, blockText: blockText)
     }
@@ -363,6 +404,7 @@ final class LongPressGestureHandler: NSObject, UIGestureRecognizerDelegate {
     
     /// Highlight a specific word by index in the current segments array.
     /// Calls JS to render the highlight, then builds and emits a WordHit.
+    /// Also checks if the highlight is visible in the viewport and sets `highlightIsOffScreen`.
     @discardableResult
     private func highlightWordAtIndex(
         _ wordIdx: Int,
@@ -392,20 +434,37 @@ final class LongPressGestureHandler: NSObject, UIGestureRecognizerDelegate {
         
         guard !word.isEmpty else { return nil }
         
+        // Check if highlight is visible in the viewport
+        highlightIsOffScreen = !(await checkHighlightVisible(in: webViews))
+        
         let hitPoint = rects.first.map { CGPoint(x: $0.midX, y: $0.midY) } ?? .zero
+        
+        let (sentence, wordOffsetInSentence) = extractSentenceWithOffset(
+            around: wordStartInBlock, wordLength: word.count, in: blockText
+        )
         
         let wordHit = WordHit(
             block: blockText,
-            sentence: extractSentence(around: wordStartInBlock, in: blockText),
+            sentence: sentence,
             run: String(Array(blockText)[runRange]),
             word: word,
             hitPoint: hitPoint,
-            rects: rects
+            rects: rects,
+            wordOffsetInSentence: wordOffsetInSentence
         )
         
         currentWordHit = wordHit
         onWordHit?(wordHit)
         return wordHit
+    }
+    
+    /// Ask JS whether the highlight span is currently visible in the web view's viewport.
+    private func checkHighlightVisible(in webViews: [WKWebView]) async -> Bool {
+        guard let result = await callJS("isHighlightVisible", args: "", in: webViews),
+              let visible = result["visible"] as? Bool else {
+            return true // Assume visible if we can't check
+        }
+        return visible
     }
     
     // MARK: - Run Navigation
@@ -510,7 +569,8 @@ final class LongPressGestureHandler: NSObject, UIGestureRecognizerDelegate {
     }
     
     /// Extract the sentence containing `charIndex` by walking to sentence boundary punctuation.
-    private func extractSentence(around charIndex: Int, in blockText: String) -> String {
+    /// Returns (sentence, wordOffsetInSentence) tuple.
+    private func extractSentenceWithOffset(around charIndex: Int, wordLength: Int, in blockText: String) -> (String, Int) {
         let chars = Array(blockText)
         let boundaries: Set<Character> = ["。", "！", "？", "!", "?", "\n"]
         
@@ -521,7 +581,14 @@ final class LongPressGestureHandler: NSObject, UIGestureRecognizerDelegate {
         while end < chars.count && !boundaries.contains(chars[end]) { end += 1 }
         if end < chars.count && boundaries.contains(chars[end]) { end += 1 }
         
-        return String(chars[start..<end])
+        let sentence = String(chars[start..<end])
+        let wordOffsetInSentence = charIndex - start
+        return (sentence, wordOffsetInSentence)
+    }
+    
+    /// Extract the sentence containing `charIndex` by walking to sentence boundary punctuation.
+    private func extractSentence(around charIndex: Int, in blockText: String) -> String {
+        extractSentenceWithOffset(around: charIndex, wordLength: 0, in: blockText).0
     }
     
     // MARK: - JS Communication (unified)

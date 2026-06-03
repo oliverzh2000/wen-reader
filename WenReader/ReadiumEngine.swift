@@ -26,6 +26,9 @@ final class ReadiumEngine: ObservableObject {
     @Published var returnLocator: Locator?
     private var isReturning = false
     private var justFollowedLink = false
+    /// When true, suppress dictionary dismissal on the next locationDidChange.
+    /// Used during programmatic page flips triggered by word navigation.
+    private var suppressDismissOnLocationChange = false
     
     // MARK: - Managers
     private let publicationManager = ReadiumPublicationManager()
@@ -57,14 +60,16 @@ final class ReadiumEngine: ObservableObject {
     
     /// Look up a word in the dictionary.
     /// When `sentence` is provided, WSD is used to sort senses by contextual relevance.
-    func updateDictionaryResult(for word: String?, sentence: String? = nil) async {
-        await dictionaryManager.lookup(word, sentence: sentence)
+    /// `wordOffsetInSentence` disambiguates repeated occurrences of the same word.
+    func updateDictionaryResult(for word: String?, sentence: String? = nil, wordOffsetInSentence: Int = 0) async {
+        await dictionaryManager.lookup(word, sentence: sentence, wordOffsetInSentence: wordOffsetInSentence)
         if word == nil {
             interactionManager.clearHighlight()
         }
     }
     
     func closeDictionaryAndClearHighlight() {
+        currentWordHit = nil
         dictionaryManager.clear()
         interactionManager.clearHighlight()
     }
@@ -80,28 +85,35 @@ final class ReadiumEngine: ObservableObject {
     
     // MARK: - Word Navigation
     
-    func navigatePrevWord() async {
-        guard let hit = await interactionManager.navigatePrevWord() else { return }
+    func navigateWord(_ direction: LongPressGestureHandler.Direction) async {
+        guard let hit = await interactionManager.navigateWord(direction) else { return }
         currentWordHit = hit
-        await updateDictionaryResult(for: hit.word, sentence: hit.sentence)
-    }
-    
-    func navigateNextWord() async {
-        guard let hit = await interactionManager.navigateNextWord() else { return }
-        currentWordHit = hit
-        await updateDictionaryResult(for: hit.word, sentence: hit.sentence)
+        
+        // If the highlight landed off-screen, page-flip to bring it into view.
+        // Use animated: false for an instant transition (no swipe animation).
+        if interactionManager.highlightIsOffScreen {
+            suppressDismissOnLocationChange = true
+            let options = NavigatorGoOptions(animated: false)
+            if direction == .next {
+                await navigatorVC?.goForward(options: options)
+            } else {
+                await navigatorVC?.goBackward(options: options)
+            }
+        }
+        
+        await updateDictionaryResult(for: hit.word, sentence: hit.sentence, wordOffsetInSentence: hit.wordOffsetInSentence)
     }
     
     func expandSelection() async {
         guard let hit = await interactionManager.expandRight() else { return }
         currentWordHit = hit
-        await updateDictionaryResult(for: hit.word, sentence: hit.sentence)
+        await updateDictionaryResult(for: hit.word, sentence: hit.sentence, wordOffsetInSentence: hit.wordOffsetInSentence)
     }
     
     func shrinkSelection() async {
         guard let hit = await interactionManager.shrinkRight() else { return }
         currentWordHit = hit
-        await updateDictionaryResult(for: hit.word, sentence: hit.sentence)
+        await updateDictionaryResult(for: hit.word, sentence: hit.sentence, wordOffsetInSentence: hit.wordOffsetInSentence)
     }
 
     // MARK: - Open Publication
@@ -133,7 +145,7 @@ final class ReadiumEngine: ObservableObject {
                 self.currentWordHit = hit
                 // Task wrapper at sync/async boundary (closure callback)
                 Task {
-                    await self.updateDictionaryResult(for: hit?.word, sentence: hit?.sentence)
+                    await self.updateDictionaryResult(for: hit?.word, sentence: hit?.sentence, wordOffsetInSentence: hit?.wordOffsetInSentence ?? 0)
                 }
             }
             
@@ -172,7 +184,13 @@ extension ReadiumEngine: EPUBNavigatorDelegate {
     }
 
     func navigator(_ navigator: Navigator, locationDidChange locator: Locator) {
-        closeDictionaryAndClearHighlight()
+        // If this location change was triggered by a programmatic page flip
+        // (from word navigation buttons), don't dismiss the dictionary.
+        if suppressDismissOnLocationChange {
+            suppressDismissOnLocationChange = false
+        } else {
+            closeDictionaryAndClearHighlight()
+        }
         
         // Clear the return locator when the user navigates away from the
         // footnote page (e.g. swipe/page turn), but NOT when we just arrived

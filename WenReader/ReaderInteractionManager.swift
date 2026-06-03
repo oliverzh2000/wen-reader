@@ -99,13 +99,13 @@ final class ReaderInteractionManager {
     // MARK: - Word Navigation
     
     /// Navigate to the previous word.
-    func navigatePrevWord() async -> WordHit? {
-        return await gestureHandler.navigatePrevWord()
+    func navigateWord(_ direction: LongPressGestureHandler.Direction) async -> WordHit? {
+        return await gestureHandler.navigateWord(direction)
     }
     
-    /// Navigate to the next word.
-    func navigateNextWord() async -> WordHit? {
-        return await gestureHandler.navigateNextWord()
+    /// Whether the last navigation placed the highlight off-screen.
+    var highlightIsOffScreen: Bool {
+        gestureHandler.highlightIsOffScreen
     }
     
     /// Expand the current selection by one character to the right.

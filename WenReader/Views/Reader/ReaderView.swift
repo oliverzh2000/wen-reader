@@ -50,6 +50,7 @@ private struct ReaderSurface: View {
 struct ReaderView: View {
     @EnvironmentObject private var chrome: UiState
     @EnvironmentObject private var catalog: CatalogStore
+    @EnvironmentObject private var settingsStore: SettingsStore
 
     let book: BookItem
 
@@ -121,12 +122,13 @@ struct ReaderView: View {
            // ignoresSafeArea lets the content extend into the unsafe area;
            // the inner frame centers it vertically within the full height.
            Group {
-               if engine.currentWordHit != nil, dictionaryManager.currentResult != nil {
+               if engine.currentWordHit != nil {
                    WordAdjustmentBar(
-                       onPrev: { Task { await engine.navigatePrevWord() } },
+                       onPrev: { Task { await engine.navigateWord(.prev) } },
                        onShrink: { Task { await engine.shrinkSelection() } },
                        onGrow: { Task { await engine.expandSelection() } },
-                       onNext: { Task { await engine.navigateNextWord() } }
+                       onNext: { Task { await engine.navigateWord(.next) } },
+                       autoAdvanceInterval: settingsStore.settings.autoAdvanceInterval
                    )
                    .transition(.opacity)
                } else if let progression = engine.currentProgression {
@@ -182,8 +184,8 @@ struct ReaderView: View {
 
                 engine.installInputObservers(
                     onSingleTap: {
-                        // Single tap will hide dict if present, otherwise toggle chrome.
-                        if engine.dictionaryManager.currentResult != nil {
+                        // Single tap will dismiss highlight/dict if present, otherwise toggle chrome.
+                        if engine.currentWordHit != nil {
                             engine.closeDictionaryAndClearHighlight()
                         } else {
                             // Toggle chrome on any single tap

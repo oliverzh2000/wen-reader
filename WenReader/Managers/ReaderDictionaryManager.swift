@@ -29,6 +29,9 @@ final class ReaderDictionaryManager: ObservableObject {
         }
         
         guard let result = await service.lookup(word, sentence: sentence) else {
+            // Word not found in dictionary — clear the popup
+            currentResult = nil
+            stack.removeAll()
             return
         }
         

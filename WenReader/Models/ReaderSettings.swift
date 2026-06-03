@@ -75,4 +75,6 @@ struct ReaderSettings: Codable, Equatable {
     var cwsEnabled: Bool = true
     /// Enable ML-based word sense disambiguation. When disabled, senses are shown in database order.
     var wsdEnabled: Bool = true
+    /// Auto-advance interval in seconds when holding the next button. 0 = disabled.
+    var autoAdvanceInterval: Double = 1.0
 }
