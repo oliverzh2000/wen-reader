@@ -103,8 +103,7 @@ struct ReaderView: View {
                             }
                         }
                     )
-                    .padding([.leading, .trailing, .bottom])
-                    .ignoresSafeArea(edges: .bottom)
+                    .padding([.leading, .trailing])
                     .frame(maxHeight: ReaderConstants.Dictionary.popoverMaxHeight)
                     .frame(
                         maxWidth: .infinity,
@@ -115,34 +114,32 @@ struct ReaderView: View {
                     .zIndex(1)
                 }
             }
-
-
         }
-        .overlay(alignment: .bottom) {
-            if engine.currentWordHit != nil, dictionaryManager.currentResult != nil {
-                VStack {
-                    Spacer()
-                    WordAdjustmentBar(
-                        onPrev: { /* TODO */ },
-                        onShrink: { /* TODO */ },
-                        onGrow: { /* TODO */ },
-                        onNext: { /* TODO */ }
-                    )
-                }
-                .transition(.opacity)
-            }
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            // Reading progress percentage in bottom safe area
-            if let progression = engine.currentProgression {
-                Text(String(format: "%.1f%%", progression * 100))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 4)
-                    .padding(.bottom, 2)
-            }
-        }
+       .safeAreaInset(edge: .bottom, spacing: 0) {
+           // Show word adjustment bar when dictionary is active, otherwise show reading progress.
+           // Only one is visible at a time, both occupy the same bottom slot.
+           // ignoresSafeArea lets the content extend into the unsafe area;
+           // the inner frame centers it vertically within the full height.
+           Group {
+               if engine.currentWordHit != nil, dictionaryManager.currentResult != nil {
+                   WordAdjustmentBar(
+                       onPrev: { Task { await engine.navigatePrevWord() } },
+                       onShrink: { Task { await engine.shrinkSelection() } },
+                       onGrow: { Task { await engine.expandSelection() } },
+                       onNext: { Task { await engine.navigateNextWord() } }
+                   )
+                   .transition(.opacity)
+               } else if let progression = engine.currentProgression {
+                   Text(String(format: "%.1f%%", progression * 100))
+                       .font(.caption)
+                       .foregroundStyle(.secondary)
+                       .frame(maxWidth: .infinity)
+               }
+           }
+           .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+           .padding(.top)
+           .frame(height: 28)
+       }
         .animation(
             .spring(
                 response: ReaderConstants.Dictionary.animationResponse,
