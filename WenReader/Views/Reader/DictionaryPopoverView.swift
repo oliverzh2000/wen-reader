@@ -142,8 +142,7 @@ struct DictionaryPopover: View {
                     .foregroundStyle(.secondary)
                 
                 TextExportMenu(
-                    wordHit: wordHit,
-                    promptStyle: $settingsStore.settings.promptStyle
+                    wordHit: wordHit
                 )
             }
 

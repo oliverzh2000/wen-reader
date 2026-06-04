@@ -3,84 +3,65 @@
 
 import SwiftUI
 
-/// Menu for exporting text to external apps (Pleco, ChatGPT, Clipboard)
+/// Menu for exporting text to external apps (Pleco, Clipboard, LLM prompt)
+///
+/// Scope and prompt style are controlled in Settings.
+/// This menu is just action buttons — one tap to do the thing.
 struct TextExportMenu: View {
     let wordHit: WordHit
-    @Binding var promptStyle: PromptStyle
+    @EnvironmentObject var settingsStore: SettingsStore
+    
+    private var scope: ShareScope { settingsStore.settings.shareScope }
+    private var promptStyle: PromptStyle { settingsStore.settings.promptStyle }
     
     var body: some View {
         Menu {
-            Section("Send/Share") {
-                // Pleco submenu
-                Menu {
-                    Button("Word") {
-                        TextExport.openInPleco(scope: .word, text: wordHit.word)
-                    }
-                    Button("Sentence") {
-                        TextExport.openInPleco(scope: .sentence, text: wordHit.sentence)
-                    }
-                    Button("Paragraph") {
-                        TextExport.openInPleco(scope: .paragraph, text: wordHit.block)
-                    }
-                } label: {
-                    Label("Pleco", systemImage: "book.pages")
+            Section("Actions") {
+                Button("Open in Pleco") {
+                    TextExport.openInPleco(scope: scope, text: textForScope)
                 }
-
-                // ChatGPT submenu
-                Menu {
-                    Section("Select Prompt Style") {
-                        Picker("Prompt Style", selection: $promptStyle) {
-                            ForEach(PromptStyle.allCases) { style in
-                                Text(style.displayName).tag(style)
-                            }
-                        }
-                        .pickerStyle(.inline)
-                    }
-                    Button("Word") {
-                        TextExport.openInChatGPT(
-                            scope: .word,
-                            promptStyle: promptStyle,
-                            text: wordHit.word,
-                            context: wordHit.sentence
-                        )
-                    }
-                    Button("Sentence") {
-                        TextExport.openInChatGPT(
-                            scope: .sentence,
-                            promptStyle: promptStyle,
-                            text: wordHit.sentence
-                        )
-                    }
-                    Button("Paragraph") {
-                        TextExport.openInChatGPT(
-                            scope: .paragraph,
-                            promptStyle: promptStyle,
-                            text: wordHit.block
-                        )
-                    }
-                } label: {
-                    Label("ChatGPT", systemImage: "sparkles")
+                
+                Button("Copy Text") {
+                    TextExport.copyToClipboard(textForScope)
                 }
-
-                // Copy submenu
-                Menu {
-                    Button("Word") {
-                        TextExport.copyToClipboard(wordHit.word)
-                    }
-                    Button("Sentence") {
-                        TextExport.copyToClipboard(wordHit.sentence)
-                    }
-                    Button("Paragraph") {
-                        TextExport.copyToClipboard(wordHit.block)
-                    }
-                } label: {
-                    Label("Copy", systemImage: "doc.on.doc")
+                
+                Button("Copy LLM Prompt") {
+                    let prompt = TextExport.buildPrompt(
+                        scope: scope,
+                        promptStyle: promptStyle,
+                        text: textForScope,
+                        context: scope == .word ? wordHit.sentence : nil
+                    )
+                    TextExport.copyToClipboard(prompt)
                 }
+            }
+            Section("Options") {
+                Picker("Text Scope", selection: $settingsStore.settings.shareScope) {
+                    ForEach(ShareScope.allCases) { scope in
+                        Text(scope.displayName).tag(scope)
+                    }
+                }
+                .pickerStyle(.menu)
+                Picker("Prompt Style", selection: $settingsStore.settings.promptStyle) {
+                    ForEach(PromptStyle.allCases) { style in
+                        Text(style.displayName).tag(style)
+                    }
+                }
+                .pickerStyle(.menu)
             }
         } label: {
             Label("Share", systemImage: "square.and.arrow.up")
                 .labelStyle(.iconOnly)
                 .tint(.secondary)
+        }
+    }
+    
+    /// Resolve the text for the current scope from the WordHit.
+    private var textForScope: String {
+        switch scope {
+        case .word: return wordHit.word
+        case .sentence: return wordHit.sentence
+        case .paragraph: return wordHit.block
         }
     }
 }

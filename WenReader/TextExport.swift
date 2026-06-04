@@ -5,10 +5,20 @@ import Foundation
 import UIKit
 
 /// Scope for share/send operations
-enum ShareScope {
+enum ShareScope: String, CaseIterable, Codable, Identifiable {
     case word
     case sentence
     case paragraph
+    
+    var id: String { rawValue }
+    
+    var displayName: String {
+        switch self {
+        case .word: return "Word"
+        case .sentence: return "Sentence"
+        case .paragraph: return "Paragraph"
+        }
+    }
 }
 
 /// Helper for sharing/sending text to external apps
@@ -52,37 +62,6 @@ struct TextExport {
         }
     }
     
-    // MARK: - ChatGPT Integration
-    
-    /// Open text in ChatGPT with contextual prompt
-    static func openInChatGPT(
-        scope: ShareScope,
-        promptStyle: PromptStyle,
-        text: String,
-        context: String? = nil
-    ) {
-        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedContext = context?.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        let prompt = makeChatGPTPrompt(
-            scope: scope,
-            style: promptStyle,
-            text: trimmedText,
-            context: trimmedContext
-        )
-
-        guard let encodedPrompt = prompt.addingPercentEncoding(
-            withAllowedCharacters: CharacterSet.urlQueryAllowed
-        ) else {
-            return
-        }
-
-        let urlString = "https://chat.openai.com/?q=\(encodedPrompt)"
-        guard let url = URL(string: urlString) else { return }
-
-        UIApplication.shared.open(url, options: [:])
-    }
-    
     // MARK: - Clipboard
     
     /// Copy text to clipboard
@@ -92,9 +71,24 @@ struct TextExport {
         UIPasteboard.general.string = trimmed
     }
     
+    // MARK: - Prompt Building
+    
+    /// Build an LLM translation/explanation prompt for the given text.
+    /// Copies to clipboard for pasting into any LLM app.
+    static func buildPrompt(
+        scope: ShareScope,
+        promptStyle: PromptStyle,
+        text: String,
+        context: String? = nil
+    ) -> String {
+        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedContext = context?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return makePrompt(scope: scope, style: promptStyle, text: trimmedText, context: trimmedContext)
+    }
+    
     // MARK: - Private Helpers
     
-    private static func makeChatGPTPrompt(
+    private static func makePrompt(
         scope: ShareScope,
         style: PromptStyle,
         text: String,

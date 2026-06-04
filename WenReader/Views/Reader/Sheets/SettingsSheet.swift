@@ -141,6 +141,26 @@ struct SettingsSheet: View {
                 .disabled(settingsStore.settings.interactionMode == .system)
 
                 Section {
+                    Picker("Text Scope", selection: $settingsStore.settings.shareScope) {
+                        ForEach(ShareScope.allCases) { scope in
+                            Text(scope.displayName).tag(scope)
+                        }
+                    }
+                    .pickerStyle(.automatic)
+                    
+                    Picker("Prompt Style", selection: $settingsStore.settings.promptStyle) {
+                        ForEach(PromptStyle.allCases) { style in
+                            Text(style.displayName).tag(style)
+                        }
+                    }
+                    .pickerStyle(.automatic)
+                } header: {
+                    Text("Share & Export")
+                } footer: {
+                    Text("Text Scope selects how much text to copy or send. Prompt Style controls the depth of LLM prompts.")
+                }
+
+                Section {
                     Button("Reset to Defaults", role: .destructive) {
                         settingsStore.settings = ReaderSettings()
                     }
