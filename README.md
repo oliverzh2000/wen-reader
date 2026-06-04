@@ -29,7 +29,7 @@ Import your own EPUBs, read with great typography, and stay fully offline.
 ### Long-Press Dictionary Popover
 - Long-press on any Chinese text to show an inline dictionary panel.  
 - Uses CC-CEDICT for offline definitions.  
-- Context-aware word segmentation and sense disambiguation powered by lightweight on-device ML (see [Technical Overview](#on-device-ml)).
+- Context-aware word boundary segmentation and dictionary definition ranking powered by lightweight on-device ML (see [Technical Overview](#on-device-ml)).
 - Options to copy the word, sentence, or paragraph; or send text to Pleco (if installed)
 
 ### Navigation
@@ -58,10 +58,10 @@ Wen Reader is implemented in Swift and SwiftUI.
 
 Wen Reader runs two small BERT-style neural networks entirely on-device via CoreML to provide context-aware Chinese word segmentation and word sense disambiguation — no internet required.
 
-- **Word segmentation:** A model evaluates all possible dictionary word spans in a sentence and finds the best overall segmentation.
+- **Word boundary segmentation:** A model evaluates all possible dictionary word spans in a sentence and finds the best overall segmentation.
   - Example: in 研究生命的意义 the model correctly segments 研究|生命|的|意义 "to study the meaning of life" rather than 研究生|命|的|意义 "graduate student|fate|…".
 
-- **Word sense disambiguation:** A model ranks dictionary definitions by how well they match the surrounding context, so the popup shows the right meaning first.
+- **Dictionary definition ranking:** A model ranks dictionary definitions by how well they match the surrounding context, so the popup shows the right meaning first.
   - Example: 长 has multiple pronunciations and meanings — in 孩子长大了 the model surfaces "zhǎng: to grow" rather than "cháng: long" or "zhǎng: chief".
 
 Both models are fine-tuned on a mix of open corpora (Wikipedia, OpenSubtitles, ICWB2, ebooks), LLM-annotated sentences from those corpora, and LLM-generated training examples. Models are quantized to int8 weights and run in 5–40ms on an iPhone 13 Pro. Total model footprint is ~44 MB. 
