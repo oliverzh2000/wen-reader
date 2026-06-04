@@ -22,13 +22,14 @@ final class ReaderDictionaryManager: ObservableObject {
     
     /// Look up a word and reset the stack.
     /// When `sentence` is provided, WSD is used to sort senses by contextual relevance.
-    func lookup(_ word: String?, sentence: String? = nil) async {
+    /// `wordOffsetInSentence` disambiguates repeated occurrences of the same word.
+    func lookup(_ word: String?, sentence: String? = nil, wordOffsetInSentence: Int = 0) async {
         guard let word = word else {
             clear()
             return
         }
         
-        guard let result = await service.lookup(word, sentence: sentence) else {
+        guard let result = await service.lookup(word, sentence: sentence, wordOffsetInSentence: wordOffsetInSentence) else {
             // Word not found in dictionary — clear the popup
             currentResult = nil
             stack.removeAll()

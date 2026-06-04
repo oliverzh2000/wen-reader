@@ -7,7 +7,8 @@ import SQLite3
 protocol DictionaryService {
     /// Return the full dictionary entry (all senses) for a word, if present.
     /// When `sentence` is provided and WSD is available, senses are sorted by contextual relevance.
-    func lookup(_ word: String, sentence: String?) async -> DictionaryResult?
+    /// `wordOffsetInSentence` disambiguates repeated occurrences of the same word.
+    func lookup(_ word: String, sentence: String?, wordOffsetInSentence: Int) async -> DictionaryResult?
 
     /// Return true if `word` exists in the dictionary (as trad or simp), false otherwise.
     func contains(_ word: String) async -> Bool
@@ -16,7 +17,11 @@ protocol DictionaryService {
 /// Convenience extension preserving the original single-argument lookup signature.
 extension DictionaryService {
     func lookup(_ word: String) async -> DictionaryResult? {
-        await lookup(word, sentence: nil)
+        await lookup(word, sentence: nil, wordOffsetInSentence: 0)
+    }
+    
+    func lookup(_ word: String, sentence: String?) async -> DictionaryResult? {
+        await lookup(word, sentence: sentence, wordOffsetInSentence: 0)
     }
 }
 
@@ -57,7 +62,7 @@ final class CedictSqlService: DictionaryService {
         openDatabaseIfNeeded()
     }
 
-    func lookup(_ word: String, sentence: String?) async -> DictionaryResult? {
+    func lookup(_ word: String, sentence: String?, wordOffsetInSentence: Int) async -> DictionaryResult? {
         return await withCheckedContinuation { continuation in
             dbQueue.async { [weak self] in
                 guard let self else {
@@ -214,6 +219,7 @@ final class CedictSqlService: DictionaryService {
                 let capturedSenseClusterIds = senseClusterIds
                 let capturedSentence = sentence
                 let capturedWsd = self.wsdService
+                let capturedWordOffset = wordOffsetInSentence
 
                 // Skip WSD if there's only one non-trivial sense cluster (nothing to disambiguate)
                 let nonTrivialCount = capturedEmbeddings.filter { !$0.isTrivial }.count
@@ -224,6 +230,7 @@ final class CedictSqlService: DictionaryService {
                         let sorted = await wsd.rankSenses(
                             word: word,
                             sentenceContext: sentence,
+                            wordOffsetInSentence: capturedWordOffset,
                             entries: capturedEntries,
                             clusterEmbeddings: capturedEmbeddings,
                             senseClusterIds: capturedSenseClusterIds

@@ -82,22 +82,23 @@ final class WSDService {
     func rankSenses(
         word: String,
         sentenceContext: String,
+        wordOffsetInSentence: Int = 0,
         entries: [Entry],
         clusterEmbeddings: [(clusterId: Int, isTrivial: Bool, embedding: Data?)],
         senseClusterIds: [Int]
     ) async -> [Entry] {
-        // Check cache first
-        let cacheKey = "\(word)\0\(sentenceContext)"
+        // Check cache first — include offset to distinguish repeated words in the same sentence
+        let cacheKey = "\(word)\0\(sentenceContext)\0\(wordOffsetInSentence)"
         if let cached = cache[cacheKey] {
-            print("[WSD DEBUG] Cache hit for '\(word)' in '\(sentenceContext.prefix(30))...'")
+            print("[WSD DEBUG] Cache hit for '\(word)' at offset \(wordOffsetInSentence) in '\(sentenceContext.prefix(30))...'")
             return cached
         }
 
-        print("[WSD DEBUG] rankSenses: word='\(word)', sentence='\(sentenceContext)' (\(sentenceContext.count) chars)")
+        print("[WSD DEBUG] rankSenses: word='\(word)', offset=\(wordOffsetInSentence), sentence='\(sentenceContext)' (\(sentenceContext.count) chars)")
         print("[WSD DEBUG] rankSenses: \(entries.count) entries, \(clusterEmbeddings.count) clusters, \(senseClusterIds.count) senseClusterIds")
 
-        // Encode the sentence context with ★ markers around the target word
-        let markedContext = wrapWordWithMarkers(word: word, in: sentenceContext)
+        // Encode the sentence context with ★ markers around the target word at the correct offset
+        let markedContext = wrapWordWithMarkers(word: word, in: sentenceContext, at: wordOffsetInSentence)
         print("[WSD DEBUG] Word: \(word)")
         print("[WSD DEBUG] Context: \(markedContext)")
 
@@ -130,10 +131,10 @@ final class WSDService {
 
     // MARK: - Cache Helpers
 
-    /// Build a cache key from a (word, sentence) pair.
+    /// Build a cache key from a (word, sentence, offset) tuple.
     /// Uses null separator to avoid collisions between different word/sentence combinations.
-    static func cacheKey(word: String, sentence: String) -> String {
-        "\(word)\0\(sentence)"
+    static func cacheKey(word: String, sentence: String, offset: Int = 0) -> String {
+        "\(word)\0\(sentence)\0\(offset)"
     }
 
     /// Store a WSD result in the cache with FIFO eviction.
@@ -155,15 +156,30 @@ final class WSDService {
 
     // MARK: - Context Encoding
 
-    /// Wrap the target word with `★` markers in the sentence context.
+    /// Wrap the target word with `★` markers in the sentence context at the specified character offset.
     ///
-    /// For example, if word is "打" and context is "他打了我一拳",
-    /// the result is "他★打★了我一拳".
+    /// For example, if word is "打" and context is "他打了球，然后打了人",
+    /// with offset=1, wraps the first "打": "他★打★了球，然后打了人".
+    /// With offset=7, wraps the second: "他打了球，然后★打★了人".
     ///
-    /// Only the first occurrence of the word is wrapped.
-    func wrapWordWithMarkers(word: String, in sentence: String) -> String {
+    /// Falls back to first occurrence if the offset doesn't match.
+    func wrapWordWithMarkers(word: String, in sentence: String, at offset: Int = 0) -> String {
+        let chars = Array(sentence)
+        let wordChars = Array(word)
+        
+        // Try to match at the specified offset first
+        if offset >= 0 && offset + wordChars.count <= chars.count {
+            let slice = chars[offset..<(offset + wordChars.count)]
+            if Array(slice) == wordChars {
+                var result = String(chars[0..<offset])
+                result += "★\(word)★"
+                result += String(chars[(offset + wordChars.count)...])
+                return result
+            }
+        }
+        
+        // Fallback: find the first occurrence using range(of:)
         guard let range = sentence.range(of: word) else {
-            // Word not found in sentence — return sentence as-is
             print("[WSD DEBUG] wrapWordWithMarkers: '\(word)' NOT FOUND in '\(sentence)'")
             return sentence
         }
