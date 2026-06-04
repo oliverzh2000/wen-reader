@@ -23,6 +23,11 @@ final class LongPressGestureHandler: NSObject, UIGestureRecognizerDelegate {
     private var longPressEndTime: CFTimeInterval = 0
     private var currentLongPressTask: Task<Void, Never>?
     
+    /// Throttle: minimum interval between processing `.changed` events (seconds).
+    /// Prevents queueing dozens of JS hit-tests when dragging quickly.
+    private static let dragThrottleInterval: CFTimeInterval = 0.10  // 100ms = ~10Hz max
+    private var lastProcessedTime: CFTimeInterval = 0
+    
     /// Current state: what block, what segments, which word is highlighted.
     private var currentBlockText: String?
     private var currentCharIndex: Int?
@@ -233,10 +238,16 @@ final class LongPressGestureHandler: NSObject, UIGestureRecognizerDelegate {
         switch gr.state {
         case .began:
             isMagnifierActive = true
+            lastProcessedTime = CACurrentMediaTime()
             onScrollingStateChange?(false) // Disable scrolling during long press
             processLongPress(at: rootPoint, isBegan: true)
             
         case .changed:
+            // Throttle: skip if we processed too recently to avoid queuing
+            // dozens of JS hit-tests when dragging quickly across many words
+            let now = CACurrentMediaTime()
+            guard now - lastProcessedTime >= Self.dragThrottleInterval else { return }
+            lastProcessedTime = now
             processLongPress(at: rootPoint, isBegan: false)
             
         case .ended, .cancelled, .failed:

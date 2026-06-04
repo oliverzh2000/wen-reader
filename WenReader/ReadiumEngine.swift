@@ -36,6 +36,9 @@ final class ReadiumEngine: ObservableObject {
     private let settingsManager = ReaderSettingsManager()
     private let interactionManager = ReaderInteractionManager()
     
+    /// Task for the current dictionary/WSD lookup. Cancelled when a new word is selected.
+    private var dictionaryLookupTask: Task<Void, Never>?
+    
     /// Dictionary manager exposed for views to observe dictionary state directly
     /// Views can observe this via @ObservedObject or access via engine.dictionaryManager
     let dictionaryManager = ReaderDictionaryManager()
@@ -62,6 +65,8 @@ final class ReadiumEngine: ObservableObject {
     /// When `sentence` is provided, WSD is used to sort senses by contextual relevance.
     /// `wordOffsetInSentence` disambiguates repeated occurrences of the same word.
     func updateDictionaryResult(for word: String?, sentence: String? = nil, wordOffsetInSentence: Int = 0) async {
+        // Bail early if this task was cancelled (new word selected before we started)
+        guard !Task.isCancelled else { return }
         await dictionaryManager.lookup(word, sentence: sentence, wordOffsetInSentence: wordOffsetInSentence)
         if word == nil {
             interactionManager.clearHighlight()
@@ -143,8 +148,9 @@ final class ReadiumEngine: ObservableObject {
             interactionManager.onWordHit = { [weak self] hit in
                 guard let self else { return }
                 self.currentWordHit = hit
-                // Task wrapper at sync/async boundary (closure callback)
-                Task {
+                // Cancel any in-flight dictionary/WSD lookup before starting a new one
+                self.dictionaryLookupTask?.cancel()
+                self.dictionaryLookupTask = Task {
                     await self.updateDictionaryResult(for: hit?.word, sentence: hit?.sentence, wordOffsetInSentence: hit?.wordOffsetInSentence ?? 0)
                 }
             }

@@ -227,6 +227,11 @@ final class CedictSqlService: DictionaryService {
                 // If sentence is provided and WSD is available, rank senses
                 if let sentence = capturedSentence, !sentence.isEmpty, let wsd = capturedWsd, nonTrivialCount > 1 {
                     Task {
+                        // Check cancellation before expensive WSD inference
+                        guard !Task.isCancelled else {
+                            continuation.resume(returning: DictionaryResult(entries: capturedEntries))
+                            return
+                        }
                         let sorted = await wsd.rankSenses(
                             word: word,
                             sentenceContext: sentence,

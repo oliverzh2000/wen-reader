@@ -29,12 +29,19 @@ final class ReaderDictionaryManager: ObservableObject {
             return
         }
         
+        // Bail early if the calling Task was cancelled (user moved to another word)
+        guard !Task.isCancelled else { return }
+        
         guard let result = await service.lookup(word, sentence: sentence, wordOffsetInSentence: wordOffsetInSentence) else {
             // Word not found in dictionary — clear the popup
+            guard !Task.isCancelled else { return }
             currentResult = nil
             stack.removeAll()
             return
         }
+        
+        // Don't apply stale results if the task was cancelled during lookup
+        guard !Task.isCancelled else { return }
         
         stack = [result]
         currentResult = result
