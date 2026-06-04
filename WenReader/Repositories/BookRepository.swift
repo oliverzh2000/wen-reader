@@ -41,11 +41,16 @@ final class DefaultBookRepository: BookRepository {
     // MARK: - Public API
     
     func loadBooks() async -> [BookItem] {
-        return UserDefaults.standard.codable(
+        let books = UserDefaults.standard.codable(
             [BookItem].self,
             forKey: storageKey,
             default: []
         )
+        // Sort: most recently opened first; books never opened keep their import order at the end
+        let opened = books.filter { $0.lastOpened != nil }
+            .sorted { $0.lastOpened! > $1.lastOpened! }
+        let unopened = books.filter { $0.lastOpened == nil }
+        return opened + unopened
     }
     
     func saveBook(_ book: BookItem) async throws {

@@ -15,4 +15,6 @@ struct BookItem: Identifiable, Codable, Hashable {
     var coverFileName: String?
     /// Total number of Readium positions (stable page-equivalent count)
     var pageCount: Int?
+    /// Date the book was last opened for reading
+    var lastOpened: Date?
 }

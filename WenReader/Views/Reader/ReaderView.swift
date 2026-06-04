@@ -182,6 +182,13 @@ struct ReaderView: View {
                     sender: rootView
                 )
 
+                // Record that this book was just opened (for sorting by recency)
+                if engine.navigatorVC != nil {
+                    var updated = book
+                    updated.lastOpened = Date()
+                    catalog.update(updated)
+                }
+
                 engine.installInputObservers(
                     onSingleTap: {
                         // Single tap will dismiss highlight/dict if present, otherwise toggle chrome.
