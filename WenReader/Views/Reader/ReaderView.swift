@@ -51,6 +51,7 @@ struct ReaderView: View {
     @EnvironmentObject private var chrome: UiState
     @EnvironmentObject private var catalog: CatalogStore
     @EnvironmentObject private var settingsStore: SettingsStore
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     let book: BookItem
 
@@ -81,14 +82,29 @@ struct ReaderView: View {
 
             GeometryReader { proxy in
                 if let hit = engine.currentWordHit, let result = dictionaryManager.currentResult {
-                    // If the word is in the bottom half of the screen, show popover on top, else bottom
+                    let screenWidth = proxy.size.width
                     let screenHeight = proxy.size.height
-                    let hitY =
-                        engine.currentWordHit?.hitPoint.y ?? screenHeight / 2
-                    let alignment: Alignment =
-                        (hitY > screenHeight / 2) ? .top : .bottom
+                    let hitX = hit.hitPoint.x
+                    let hitY = hit.hitPoint.y
 
-                    // Popover pinned to top or bottom
+                    // On iPad 2-column: place dictionary on the OPPOSITE column,
+                    // vertically aligned with the word. On iPhone: top/bottom as before.
+                    let isRegular = horizontalSizeClass == .regular
+                    let alignment: Alignment = {
+                        if isRegular {
+                            // Opposite column, same vertical half
+                            let onLeft = hitX < screenWidth / 2
+                            let onTop = hitY < screenHeight / 2
+                            if onLeft && onTop { return .topTrailing }
+                            if onLeft && !onTop { return .bottomTrailing }
+                            if !onLeft && onTop { return .topLeading }
+                            return .bottomLeading
+                        } else {
+                            // iPhone: top or bottom based on word position
+                            return (hitY > screenHeight / 2) ? .top : .bottom
+                        }
+                    }()
+
                     DictionaryPopover(
                         result: result,
                         wordHit: hit,
@@ -98,13 +114,14 @@ struct ReaderView: View {
                             engine.popDictionary()
                         },
                         onLinkTap: { headword in
-                            // Use either trad or simp; the SQL WHERE matches both.
                             Task {
                                 await engine.pushDictionary(for: headword.simplified)
                             }
                         }
                     )
-                    .padding([.leading, .trailing])
+                    .padding(.horizontal)
+                    .frame(width: isRegular ? screenWidth / 2 : nil)
+                    .frame(maxWidth: isRegular ? nil : .infinity)
                     .frame(maxHeight: ReaderConstants.Dictionary.popoverMaxHeight)
                     .frame(
                         maxWidth: .infinity,
