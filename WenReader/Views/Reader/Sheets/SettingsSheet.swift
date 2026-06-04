@@ -124,6 +124,15 @@ struct SettingsSheet: View {
                     }
                 }
 
+                Section("Dictionary") {
+                    Picker("Script Variant", selection: $settingsStore.settings.headwordPreference) {
+                        ForEach(HeadwordPreference.allCases) { pref in
+                            Text(pref.displayName).tag(pref)
+                        }
+                    }
+                    .pickerStyle(.automatic)
+                }
+
                 Section {
                     Toggle(
                         "Word Segmentation",

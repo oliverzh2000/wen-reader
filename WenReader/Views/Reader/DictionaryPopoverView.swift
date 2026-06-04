@@ -7,6 +7,7 @@ import SwiftUI
 // MARK: - SenseView
 struct SenseView: View {
     let sense: Sense
+    let headwordPreference: HeadwordPreference
     // We don't call this directly; instead we encode into URL and
     // let DictionaryPopover's .openURL handler call onLinkTap.
     // Keeping the closure here in case you want to evolve this later.
@@ -51,9 +52,13 @@ struct SenseView: View {
                 output.append(pinyin)
 
             case .link(let headword):
-                var label = AttributedString(headword.simplified)
-                if headword.traditional != headword.simplified {
-                    label.append(AttributedString("[\(headword.traditional)]"))
+                let primary = headwordPreference == .simplified
+                    ? headword.simplified : headword.traditional
+                let secondary = headwordPreference == .simplified
+                    ? headword.traditional : headword.simplified
+                var label = AttributedString(primary)
+                if secondary != primary {
+                    label.append(AttributedString("[\(secondary)]"))
                 }
 
                 // Style like a link
@@ -146,14 +151,19 @@ struct DictionaryPopover: View {
                 )
             }
 
-            // Headword: simplified [traditional] (with diff masking)
+            // Headword: primary [secondary] (with diff masking)
             if let entry = currentEntry {
+                let primary = settingsStore.settings.headwordPreference == .simplified
+                    ? entry.simplified : entry.traditional
+                let secondary = settingsStore.settings.headwordPreference == .simplified
+                    ? entry.traditional : entry.simplified
+
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    Text(entry.simplified)
+                    Text(primary)
                         .font(.title2)
 
-                    if entry.traditional != entry.simplified {
-                        Text("[\(maskedTraditional(simp: entry.simplified, trad: entry.traditional))]")
+                    if secondary != primary {
+                        Text("[\(maskedSecondary(primary: primary, secondary: secondary))]")
                             .font(.title2)
                             .foregroundStyle(.secondary)
                     }
@@ -216,6 +226,7 @@ struct DictionaryPopover: View {
 
                                             SenseView(
                                                 sense: row.sense,
+                                                headwordPreference: settingsStore.settings.headwordPreference,
                                                 makeLinkURL: { headword in
                                                     linkURL(for: headword)
                                                 }
@@ -225,6 +236,7 @@ struct DictionaryPopover: View {
                                         // Normal sense or global CL
                                         SenseView(
                                             sense: row.sense,
+                                            headwordPreference: settingsStore.settings.headwordPreference,
                                             makeLinkURL: { headword in
                                                 linkURL(for: headword)
                                             }
@@ -260,25 +272,25 @@ struct DictionaryPopover: View {
         })
     }
 
-    // MARK: - Traditional diff masking
+    // MARK: - Headword diff masking
     
-    /// For multi-char words, replaces trad chars that match simp with ー (fullwidth)
+    /// For multi-char words, replaces secondary chars that match primary with ー (fullwidth)
     /// so only the *different* characters stand out visually.
-    /// Single-char words or length mismatches show the full traditional form.
-    private func maskedTraditional(simp: String, trad: String) -> String {
-        let simpChars = Array(simp)
-        let tradChars = Array(trad)
+    /// Single-char words or length mismatches show the full secondary form.
+    private func maskedSecondary(primary: String, secondary: String) -> String {
+        let primaryChars = Array(primary)
+        let secondaryChars = Array(secondary)
         
         // Only mask when lengths match and word is multi-char
-        guard simpChars.count == tradChars.count, simpChars.count > 1 else {
-            return trad
+        guard primaryChars.count == secondaryChars.count, primaryChars.count > 1 else {
+            return secondary
         }
         
         // U+FF0D fullwidth hyphen-minus — same visual width as a CJK char
         let placeholder: Character = "\u{FF0D}"
         
-        return String(zip(simpChars, tradChars).map { s, t in
-            s == t ? placeholder : t
+        return String(zip(primaryChars, secondaryChars).map { p, s in
+            p == s ? placeholder : s
         })
     }
     

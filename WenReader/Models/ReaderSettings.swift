@@ -47,6 +47,19 @@ enum ReaderTheme: String, CaseIterable, Codable, Identifiable {
     }
 }
 
+enum HeadwordPreference: String, CaseIterable, Codable, Identifiable {
+    case simplified, traditional
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .simplified: return "Simplified"
+        case .traditional: return "Traditional"
+        }
+    }
+}
+
 enum PromptStyle: String, CaseIterable, Codable, Identifiable {
     case quick, full
     
@@ -69,6 +82,7 @@ struct ReaderSettings: Codable, Equatable {
     var margins: Double = 1.0
     var justify: Bool = true
     var theme: ReaderTheme = .system
+    var headwordPreference: HeadwordPreference = .simplified
     var promptStyle: PromptStyle = .quick
     var shareScope: ShareScope = .sentence
 
