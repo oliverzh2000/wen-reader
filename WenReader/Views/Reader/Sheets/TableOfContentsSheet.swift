@@ -12,7 +12,8 @@ struct TableOfContentsSheet: View {
     let coverImage: UIImage?
     let onSelect: (RLink) -> Void
 
-    @State private var tocEntries: [(link: RLink, depth: Int, progress: Double?)] = []
+    @State private var tocEntries: [(link: RLink, depth: Int, page: Int?)] = []
+    @State private var totalPages: Int = 0
 
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var settingsStore: SettingsStore
@@ -34,7 +35,7 @@ struct TableOfContentsSheet: View {
                             .listRowSeparator(.hidden)
                         }
 
-                        // Chapter list with indentation and progress
+                        // Chapter list with indentation and page number
                         Section {
                             ForEach(Array(tocEntries.enumerated()), id: \.offset) { _, entry in
                                 Button {
@@ -45,8 +46,8 @@ struct TableOfContentsSheet: View {
                                         Text(entry.link.title ?? entry.link.href)
                                             .lineLimit(2)
                                         Spacer()
-                                        if let progress = entry.progress {
-                                            Text(String(format: "%.0f%%", progress * 100))
+                                        if let page = entry.page {
+                                            Text("\(page)")
                                                 .font(.caption)
                                                 .foregroundStyle(.secondary)
                                         }
@@ -125,8 +126,8 @@ struct TableOfContentsSheet: View {
             }
         }
         
-        // Resolve each link to get its progression
-        var entries: [(link: RLink, depth: Int, progress: Double?)] = []
+        // Resolve each link to get its page number
+        var entries: [(link: RLink, depth: Int, page: Int?)] = []
         for (link, depth) in flat {
             // Try locate first, fall back to positions lookup
             var progress: Double? = nil
@@ -137,9 +138,11 @@ struct TableOfContentsSheet: View {
                 // Fall back: match by href
                 progress = hrefToProgression[link.url()]
             }
-            entries.append((link, depth, progress))
+            let page: Int? = progress.map { Int(round($0 * totalCount)) + 1 }
+            entries.append((link, depth, page))
         }
         
         tocEntries = entries
+        totalPages = Int(totalCount)
     }
 }
