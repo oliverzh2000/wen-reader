@@ -51,7 +51,6 @@ struct ReaderView: View {
     @EnvironmentObject private var chrome: UiState
     @EnvironmentObject private var catalog: CatalogStore
     @EnvironmentObject private var settingsStore: SettingsStore
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     let book: BookItem
 
@@ -82,28 +81,10 @@ struct ReaderView: View {
 
             GeometryReader { proxy in
                 if let hit = engine.currentWordHit, let result = dictionaryManager.currentResult {
-                    let screenWidth = proxy.size.width
                     let screenHeight = proxy.size.height
-                    let hitX = hit.hitPoint.x
                     let hitY = hit.hitPoint.y
 
-                    // On iPad 2-column: place dictionary on the OPPOSITE column,
-                    // vertically aligned with the word. On iPhone: top/bottom as before.
-                    let isRegular = horizontalSizeClass == .regular
-                    let alignment: Alignment = {
-                        if isRegular {
-                            // Opposite column, same vertical half
-                            let onLeft = hitX < screenWidth / 2
-                            let onTop = hitY < screenHeight / 2
-                            if onLeft && onTop { return .topTrailing }
-                            if onLeft && !onTop { return .bottomTrailing }
-                            if !onLeft && onTop { return .topLeading }
-                            return .bottomLeading
-                        } else {
-                            // iPhone: top or bottom based on word position
-                            return (hitY > screenHeight / 2) ? .top : .bottom
-                        }
-                    }()
+                    let alignment: Alignment = (hitY > screenHeight / 2) ? .top : .bottom
 
                     DictionaryPopover(
                         result: result,
@@ -120,8 +101,7 @@ struct ReaderView: View {
                         }
                     )
                     .padding(.horizontal)
-                    .frame(width: isRegular ? screenWidth / 2 : nil)
-                    .frame(maxWidth: isRegular ? nil : .infinity)
+                    .frame(maxWidth: ReaderConstants.Dictionary.popoverMaxWidth)
                     .frame(maxHeight: ReaderConstants.Dictionary.popoverMaxHeight)
                     .frame(
                         maxWidth: .infinity,
@@ -155,7 +135,7 @@ struct ReaderView: View {
                        .frame(maxWidth: .infinity)
                }
            }
-           .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+           .frame(maxWidth: ReaderConstants.Dictionary.popoverMaxWidth, maxHeight: .infinity, alignment: .center)
            .padding(.top)
            .frame(height: 28)
        }

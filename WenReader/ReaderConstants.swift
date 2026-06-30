@@ -8,6 +8,9 @@ import Foundation
 enum ReaderConstants {
     /// Dictionary popover display settings
     enum Dictionary {
+        /// Maximum width for dictionary popover and word adjustment bar
+        static let popoverMaxWidth: CGFloat = 600
+
         /// Maximum height for dictionary popover
         static let popoverMaxHeight: CGFloat = 300
         
