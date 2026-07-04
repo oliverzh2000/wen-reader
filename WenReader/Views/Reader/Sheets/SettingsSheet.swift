@@ -23,7 +23,7 @@ struct SettingsSheet: View {
                         Text("Font Size")
                         Slider(
                             value: $settingsStore.settings.fontSize,
-                            in: 1.0...2.0,
+                            in: 1.0...3.0,
                             step: 0.1
                         ) {
                         } minimumValueLabel: {

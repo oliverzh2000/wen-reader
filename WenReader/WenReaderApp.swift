@@ -21,34 +21,43 @@ struct WenReaderApp: App {
         WSDServiceFactory.initialize(wsdEnabled: settings.wsdEnabled)
     }
 
+    @State private var showAbout = false
+
     var body: some Scene {
         WindowGroup {
-            TabView {
-                // Library tab
-                NavigationStack {
-                    LibraryView()
-                }
-                .tabItem {
-                    Label("Library", systemImage: "books.vertical")
-                }
-
-                // Settings tab
-                NavigationStack {
-                    AboutView()
-                }
-                .tabItem {
-                    Label("About", systemImage: "info.circle")
-                }
+            NavigationStack {
+                LibraryView()
             }
-            // Environment objects apply to both tabs
             .environmentObject(catalog)
             .environmentObject(globalUiState)
             .environmentObject(settingsStore)
             .statusBarHidden(globalUiState.hideStatusBar)
             .preferredColorScheme(preferredColorScheme)
+            .sheet(isPresented: $showAbout) {
+                AboutView()
+                    .presentationDetents([.medium, .large])
+            }
+        }
+        .commands {
+            CommandGroup(replacing: .appInfo) {
+                Button("About Wen Reader") {
+                    showAbout = true
+                }
+            }
+            CommandMenu("Word") {
+                Text("Previous Word\t\t←")
+                Text("Next Word\t\t→")
+                Divider()
+                Text("Shrink Selection\t\t↑")
+                Text("Expand Selection\t\t↓")
+                Divider()
+                Text("Toggle Auto-Advance\t\tSpace")
+            }
         }
     }
-    
+}
+
+extension WenReaderApp {
     // Compute color scheme from settings
     private var preferredColorScheme: ColorScheme? {
         switch settingsStore.settings.theme {
@@ -57,7 +66,7 @@ struct WenReaderApp: App {
         case .dark:
             return .dark
         case .system:
-            return nil  // nil = follow system appearance
+            return nil
         }
     }
 }
