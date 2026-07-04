@@ -13,7 +13,7 @@ import ReadiumNavigator
 /// - All segmentation, sentence/run detection, and word navigation live in Swift.
 /// - DOM state: at most one `id="wr-active-block"` + one `<span id="wr-highlight">`.
 @MainActor
-final class LongPressGestureHandler: NSObject, UIGestureRecognizerDelegate {
+final class WordSelectionGestureHandler: NSObject, UIGestureRecognizerDelegate {
     
     // MARK: - Properties
     
@@ -51,25 +51,38 @@ final class LongPressGestureHandler: NSObject, UIGestureRecognizerDelegate {
     /// Whether ML-based segmentation (CWS) is enabled.
     var cwsEnabled: Bool = true
     
+    private var clickGR: UITapGestureRecognizer?
+
     // MARK: - Setup
-    
+
     func install(on navigatorVC: EPUBNavigatorViewController) {
         self.navigatorVC = navigatorVC
-        
-        let lp = UILongPressGestureRecognizer(
-            target: self,
-            action: #selector(handleLongPress(_:))
-        )
-        lp.minimumPressDuration = ReaderConstants.Interaction.longPressDuration
-        lp.cancelsTouchesInView = false
-        lp.delegate = self
-        navigatorVC.view.addGestureRecognizer(lp)
-        
-        self.longPress = lp
+
+        if ProcessInfo.processInfo.isMacCatalystApp {
+            let tap = UITapGestureRecognizer(
+                target: self,
+                action: #selector(handleClick(_:))
+            )
+            tap.cancelsTouchesInView = false
+            tap.delegate = self
+            navigatorVC.view.addGestureRecognizer(tap)
+            self.clickGR = tap
+        } else {
+            let lp = UILongPressGestureRecognizer(
+                target: self,
+                action: #selector(handleLongPress(_:))
+            )
+            lp.minimumPressDuration = ReaderConstants.Interaction.longPressDuration
+            lp.cancelsTouchesInView = false
+            lp.delegate = self
+            navigatorVC.view.addGestureRecognizer(lp)
+            self.longPress = lp
+        }
     }
     
     func setEnabled(_ enabled: Bool) {
         longPress?.isEnabled = enabled
+        clickGR?.isEnabled = enabled
     }
     
     /// Reset all cached state (call when dictionary is closed).
@@ -223,17 +236,18 @@ final class LongPressGestureHandler: NSObject, UIGestureRecognizerDelegate {
     
     // MARK: - Gesture Handling
     
-    @objc private func handleLongPress(_ gr: UILongPressGestureRecognizer) {
-        guard let hostView = gr.view else { return }
-        
-        // Convert gesture point to navigator root coordinates
+    /// Convert any gesture recognizer's location to navigator root coordinates.
+    private func rootCoordinates(for gr: UIGestureRecognizer) -> CGPoint {
+        guard let hostView = gr.view else { return .zero }
         let pInHost = gr.location(in: hostView)
-        let rootPoint: CGPoint
         if let root = navigatorVC?.view, hostView !== root {
-            rootPoint = hostView.convert(pInHost, to: root)
-        } else {
-            rootPoint = pInHost
+            return hostView.convert(pInHost, to: root)
         }
+        return pInHost
+    }
+
+    @objc private func handleLongPress(_ gr: UILongPressGestureRecognizer) {
+        let rootPoint = rootCoordinates(for: gr)
         
         switch gr.state {
         case .began:
@@ -265,8 +279,48 @@ final class LongPressGestureHandler: NSObject, UIGestureRecognizerDelegate {
         }
     }
     
+    // MARK: - Click Handling (Mac Catalyst)
+
+    /// Called when a click lands on non-CJK text (whitespace, punctuation, etc.).
+    /// Serves the same role as Readium's tap observer on iOS — dismisses popups.
+    var onClickMiss: (() -> Void)?
+
+    @objc private func handleClick(_ gr: UITapGestureRecognizer) {
+        guard gr.state == .ended else { return }
+        let rootPoint = rootCoordinates(for: gr)
+
+        currentLongPressTask?.cancel()
+        currentLongPressTask = Task {
+            guard !Task.isCancelled,
+                  let root = navigatorVC?.view else { return }
+
+            let webViews = ViewHierarchyHelper.findWebViews(in: root)
+
+            guard let result = await callJS(
+                "getBlockAndCharIndexAtPoint",
+                args: rootPoint,
+                in: webViews
+            ),
+            let blockText = result["blockText"] as? String,
+            let charIndex = result["charIndex"] as? Int else {
+                onClickMiss?()
+                return
+            }
+
+            guard !Task.isCancelled else { return }
+
+            let chars = Array(blockText)
+            guard charIndex < chars.count, chars[charIndex].isCJK else {
+                onClickMiss?()
+                return
+            }
+
+            processLongPress(at: rootPoint, isBegan: true)
+        }
+    }
+
     // MARK: - UIGestureRecognizerDelegate
-    
+
     func gestureRecognizer(
         _ gestureRecognizer: UIGestureRecognizer,
         shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer

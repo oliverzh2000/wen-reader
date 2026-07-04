@@ -29,6 +29,10 @@ final class ReadiumEngine: ObservableObject {
     /// When true, suppress dictionary dismissal on the next locationDidChange.
     /// Used during programmatic page flips triggered by word navigation.
     private var suppressDismissOnLocationChange = false
+
+    /// Whether auto-advance is currently running.
+    @Published var isAutoAdvancing: Bool = false
+    private var autoAdvanceTask: Task<Void, Never>?
     
     // MARK: - Managers
     private let publicationManager = ReadiumPublicationManager()
@@ -74,6 +78,7 @@ final class ReadiumEngine: ObservableObject {
     }
     
     func closeDictionaryAndClearHighlight() {
+        stopAutoAdvance()
         currentWordHit = nil
         dictionaryManager.clear()
         interactionManager.clearHighlight()
@@ -90,10 +95,10 @@ final class ReadiumEngine: ObservableObject {
     
     // MARK: - Word Navigation
     
-    func navigateWord(_ direction: LongPressGestureHandler.Direction) async {
+    func navigateWord(_ direction: WordSelectionGestureHandler.Direction) async {
         guard let hit = await interactionManager.navigateWord(direction) else { return }
         currentWordHit = hit
-        
+
         // If the highlight landed off-screen, page-flip to bring it into view.
         // Use animated: false for an instant transition (no swipe animation).
         if interactionManager.highlightIsOffScreen {
@@ -105,7 +110,7 @@ final class ReadiumEngine: ObservableObject {
                 await navigatorVC?.goBackward(options: options)
             }
         }
-        
+
         await updateDictionaryResult(for: hit.word, sentence: hit.sentence, wordOffsetInSentence: hit.wordOffsetInSentence)
     }
     
@@ -119,6 +124,33 @@ final class ReadiumEngine: ObservableObject {
         guard let hit = await interactionManager.shrinkRight() else { return }
         currentWordHit = hit
         await updateDictionaryResult(for: hit.word, sentence: hit.sentence, wordOffsetInSentence: hit.wordOffsetInSentence)
+    }
+
+    func toggleAutoAdvance(interval: Double = 1.0) {
+        if isAutoAdvancing {
+            stopAutoAdvance()
+        } else {
+            startAutoAdvance(interval: interval)
+        }
+    }
+
+    func startAutoAdvance(interval: Double) {
+        guard !isAutoAdvancing else { return }
+        isAutoAdvancing = true
+        autoAdvanceTask = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+                guard !Task.isCancelled else { break }
+                await self.navigateWord(.next)
+            }
+            self.isAutoAdvancing = false
+        }
+    }
+
+    func stopAutoAdvance() {
+        autoAdvanceTask?.cancel()
+        autoAdvanceTask = nil
+        isAutoAdvancing = false
     }
 
     // MARK: - Open Publication
@@ -218,8 +250,9 @@ extension ReadiumEngine: EPUBNavigatorDelegate {
         
         currentLocation = locator
         locationManager.saveLocation(locator)
-        
+
         interactionManager.reapplyAfterNavigation()
+        tightenVerticalMargins()
     }
 
     func apply(_ settings: ReaderSettings, _ systemColorScheme: ColorScheme) {
@@ -247,74 +280,96 @@ extension ReadiumEngine: EPUBNavigatorDelegate {
         return true
     }
 
-    // Use this for reliable and link-friendly tapping.
+    /// Install tap/click handling for the reader.
+    /// On iOS, uses Readium's tap observer (coexists with the long-press GR).
+    /// On Mac, the click gesture handler handles everything — CJK clicks do
+    /// word lookup, non-CJK clicks call `onSingleTap` to dismiss popups/chrome.
     func installInputObservers(
         onSingleTap: @escaping () -> Void
     ) {
         guard let nav = navigatorVC else { return }
 
-        // Single tap anywhere
-        nav.addObserver(
-            .tap { [weak self] event in
-                guard let self else { return false }
+        if ProcessInfo.processInfo.isMacCatalystApp {
+            interactionManager.onClickMiss = { onSingleTap() }
+        } else {
+            nav.addObserver(
+                .tap { [weak self] event in
+                    guard let self else { return false }
 
-                // If a long-press just ended, swallow this tap
-                if self.interactionManager.consumeSuppressedTap() {
-                    // Return true to mark the event as handled and
-                    // prevent further tap listeners from firing.
-                    return true
+                    // If a long-press just ended, swallow this tap
+                    if self.interactionManager.consumeSuppressedTap() {
+                        return true
+                    }
+
+                    onSingleTap()
+
+                    // Return false so Readium can still deliver the tap
+                    // to links/images inside the page.
+                    return false
                 }
-
-                // Normal single-tap: let the caller toggle chrome, etc.
-                onSingleTap()
-
-                // Return false so Readium can still deliver the tap
-                // to links/images inside the page.
-                return false
-            }
-        )
+            )
+        }
     }
 }
 
-/// This is to fix the stubborn top and bottom margins in the EPUB navigator
+/// This is to fix the stubborn top and bottom margins in the EPUB navigator.
+/// Readium's spread views add ~62pt top/bottom constraints on the web view.
+/// We deactivate those and replace with zero-constant constraints at required priority
+/// so Readium cannot re-apply them on subsequent layout passes.
 extension ReadiumEngine {
+    private static let fixedTag = 9999
+
     func tightenVerticalMargins() {
         guard let root = self.navigatorVC?.view else { return }
         removeVerticalInsets(in: root)
-        root.layoutIfNeeded()   // let Auto Layout apply updated constants
+        root.layoutIfNeeded()
     }
 
     private func removeVerticalInsets(in view: UIView) {
-        // Look for each spread view
         let typeName = String(describing: type(of: view))
         if typeName == "PaginationView" || typeName == "EPUBReflowableSpreadView" {
             fixSpreadConstraints(view)
         }
-
         view.subviews.forEach(removeVerticalInsets)
     }
 
     private func fixSpreadConstraints(_ spreadView: UIView) {
-        // First find the 'WebView' child.
         guard let webView = spreadView.subviews.first(where: {
             String(describing: type(of: $0)) == "WebView"
         }) else { return }
 
-        // Adjust constraints on the spread itself that involve webView's top/bottom.
+        // Skip if we already fixed this spread view
+        guard spreadView.viewWithTag(Self.fixedTag) == nil else { return }
+
+        // Deactivate Readium's top/bottom constraints on the web view
+        var toDeactivate: [NSLayoutConstraint] = []
         for constraint in spreadView.constraints {
             let firstIsWeb = constraint.firstItem as AnyObject === webView
             let secondIsWeb = constraint.secondItem as AnyObject === webView
+            guard firstIsWeb || secondIsWeb else { continue }
 
-            if firstIsWeb || secondIsWeb {
-                switch (constraint.firstAttribute, constraint.secondAttribute) {
-                case (.top, _), (_, .top),
-                     (.bottom, _), (_, .bottom):
-                    // Kill the 62pt constants
-                    constraint.constant = 0
-                default:
-                    break
-                }
+            switch (constraint.firstAttribute, constraint.secondAttribute) {
+            case (.top, _), (_, .top),
+                 (.bottom, _), (_, .bottom):
+                toDeactivate.append(constraint)
+            default:
+                break
             }
         }
+
+        NSLayoutConstraint.deactivate(toDeactivate)
+
+        // Add our own zero-inset constraints
+        let top = webView.topAnchor.constraint(equalTo: spreadView.topAnchor)
+        let bottom = webView.bottomAnchor.constraint(equalTo: spreadView.bottomAnchor)
+        top.priority = .required
+        bottom.priority = .required
+        NSLayoutConstraint.activate([top, bottom])
+
+        // Mark as fixed with an invisible tag view
+        let marker = UIView()
+        marker.tag = Self.fixedTag
+        marker.isHidden = true
+        spreadView.addSubview(marker)
     }
 }

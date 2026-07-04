@@ -22,12 +22,17 @@ final class ReaderInteractionManager {
     
     // Specialized handlers
     private let injector: WebViewInjector
-    private let gestureHandler: LongPressGestureHandler
+    private let gestureHandler: WordSelectionGestureHandler
     
     // Callbacks
     var onWordHit: ((WordHit?) -> Void)? {
         didSet {
             gestureHandler.onWordHit = onWordHit
+        }
+    }
+    var onClickMiss: (() -> Void)? {
+        didSet {
+            gestureHandler.onClickMiss = onClickMiss
         }
     }
     
@@ -44,7 +49,7 @@ final class ReaderInteractionManager {
         }
         
         self.injector = injector
-        self.gestureHandler = LongPressGestureHandler()
+        self.gestureHandler = WordSelectionGestureHandler()
         
         // Setup gesture handler callbacks
         self.gestureHandler.onScrollingStateChange = { [weak self] enabled in
@@ -99,7 +104,7 @@ final class ReaderInteractionManager {
     // MARK: - Word Navigation
     
     /// Navigate to the previous word.
-    func navigateWord(_ direction: LongPressGestureHandler.Direction) async -> WordHit? {
+    func navigateWord(_ direction: WordSelectionGestureHandler.Direction) async -> WordHit? {
         return await gestureHandler.navigateWord(direction)
     }
     
