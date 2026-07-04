@@ -16,84 +16,42 @@ struct WordAdjustmentBar: View {
     var onShrink: () -> Void
     var onGrow: () -> Void
     var onNext: () -> Void
-    
-    /// Auto-advance interval in seconds. Passed from settings.
-    var autoAdvanceInterval: Double = 1.0
-    
-    @State private var isAutoAdvancing = false
-    @State private var autoAdvanceTask: Task<Void, Never>?
+    var onToggleAutoAdvance: () -> Void
+    var isAutoAdvancing: Bool
 
     var body: some View {
         HStack {
-            Button(action: { stopAutoAdvance(); onPrev() }) {
+            Button(action: onPrev) {
                 Image(systemName: "chevron.left")
                     .frame(maxWidth: .infinity)
             }
-            Button(action: { stopAutoAdvance(); onShrink() }) {
+            Button(action: onShrink) {
                 Image(systemName: "chevron.left.2")
                     .frame(maxWidth: .infinity)
             }
-            
+
             // Center: play/pause toggle for auto-advance
-            autoAdvanceToggle
-            
-            Button(action: { stopAutoAdvance(); onGrow() }) {
+            Button {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                onToggleAutoAdvance()
+            } label: {
+                Image(systemName: isAutoAdvancing ? "pause.fill" : "play.fill")
+                    .contentTransition(.symbolEffect(.replace))
+                    .foregroundStyle(isAutoAdvancing ? Color.accentColor : .secondary)
+                    .frame(maxWidth: .infinity)
+            }
+
+            Button(action: onGrow) {
                 Image(systemName: "chevron.right.2")
                     .frame(maxWidth: .infinity)
             }
-            Button(action: { stopAutoAdvance(); onNext() }) {
+            Button(action: onNext) {
                 Image(systemName: "chevron.right")
                     .frame(maxWidth: .infinity)
             }
         }
         .foregroundStyle(.secondary)
         .padding(.horizontal)
-        .onDisappear {
-            // Ensure timer is killed when bar is removed from view hierarchy
-            stopAutoAdvance()
-        }
-    }
-    
-    // MARK: - Auto-Advance Toggle (center button)
-    
-    /// Animated play/pause button that toggles auto-advance mode.
-    /// Uses `.contentTransition(.symbolEffect(.replace))` for a smooth morph between icons.
-    private var autoAdvanceToggle: some View {
-        Button {
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            if isAutoAdvancing {
-                stopAutoAdvance()
-            } else {
-                startAutoAdvance()
-            }
-        } label: {
-            Image(systemName: isAutoAdvancing ? "pause.fill" : "play.fill")
-                .contentTransition(.symbolEffect(.replace))
-                .foregroundStyle(isAutoAdvancing ? Color.accentColor : .secondary)
-                .frame(maxWidth: .infinity)
-        }
-    }
-    
-    // MARK: - Auto-Advance
-    
-    private func startAutoAdvance() {
-        guard !isAutoAdvancing else { return }
-        isAutoAdvancing = true
-        
-        autoAdvanceTask = Task {
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: UInt64(autoAdvanceInterval * 1_000_000_000))
-                guard !Task.isCancelled else { break }
-                await MainActor.run { onNext() }
-            }
-            await MainActor.run { isAutoAdvancing = false }
-        }
-    }
-    
-    private func stopAutoAdvance() {
-        autoAdvanceTask?.cancel()
-        autoAdvanceTask = nil
-        isAutoAdvancing = false
     }
 }
 
@@ -108,7 +66,8 @@ struct WordAdjustmentBar: View {
                 onShrink: { print("shrink") },
                 onGrow: { print("grow") },
                 onNext: { print("next") },
-                autoAdvanceInterval: 0.5
+                onToggleAutoAdvance: { print("toggle") },
+                isAutoAdvancing: false
             )
         }
     }

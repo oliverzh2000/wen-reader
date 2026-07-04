@@ -1,6 +1,7 @@
 // Copyright 2025 Oliver Zhang
 // Licensed under the MIT License
 
+import ReadiumShared
 import SwiftUI
 import UIKit
 
@@ -10,15 +11,16 @@ private struct ReaderSurface: View {
     @EnvironmentObject var settingsStore: SettingsStore
     @Environment(\.colorScheme) private var systemColorScheme
 
+    var keyActions = KeyActions()
+
     var body: some View {
         Group {
             if engine.navigatorVC != nil {
                 // Readium's EPUB rendering window.
                 NavigatorHost(
                     navigatorVC: engine.navigatorVC!,
-                    onLayout: {
-                        engine.tightenVerticalMargins()
-                    }
+                    onLayout: { engine.tightenVerticalMargins() },
+                    keyActions: keyActions
                 )
                     .onAppear {
                         engine.apply(settingsStore.settings, systemColorScheme)
@@ -59,10 +61,12 @@ struct ReaderView: View {
     // Observe dictionary manager changes explicitly so SwiftUI re-renders on dictionary updates
     @ObservedObject private var dictionaryManager: ReaderDictionaryManager
 
-    @State private var showChrome = false
+    @State private var showChrome = ProcessInfo.processInfo.isMacCatalystApp
     @State private var showChapters = false
     @State private var showSettings = false
     @State private var didSync = false
+
+    private var isMac: Bool { ProcessInfo.processInfo.isMacCatalystApp }
     
     init(book: BookItem) {
         self.book = book
@@ -77,7 +81,21 @@ struct ReaderView: View {
 
     var body: some View {
         ZStack {
-            ReaderSurface(engine: engine)
+            ReaderSurface(
+                engine: engine,
+                keyActions: isMac ? KeyActions(
+                    onArrowLeft:  { Task { await engine.navigateWord(.prev) } },
+                    onArrowRight: { Task { await engine.navigateWord(.next) } },
+                    onArrowUp:    { Task { await engine.shrinkSelection() } },
+                    onArrowDown:  { Task { await engine.expandSelection() } },
+                    onSpace:      { engine.toggleAutoAdvance(interval: settingsStore.settings.autoAdvanceInterval) },
+                    onEscape:     {
+                        if showChapters { showChapters = false }
+                        else if showSettings { showSettings = false }
+                        else if engine.currentWordHit != nil { engine.closeDictionaryAndClearHighlight() }
+                    }
+                ) : KeyActions()
+            )
 
             GeometryReader { proxy in
                 if let hit = engine.currentWordHit, let result = dictionaryManager.currentResult {
@@ -115,17 +133,15 @@ struct ReaderView: View {
         }
        .safeAreaInset(edge: .bottom, spacing: 0) {
            // Show word adjustment bar when dictionary is active, otherwise show reading progress.
-           // Only one is visible at a time, both occupy the same bottom slot.
-           // ignoresSafeArea lets the content extend into the unsafe area;
-           // the inner frame centers it vertically within the full height.
            Group {
                if engine.currentWordHit != nil {
                    WordAdjustmentBar(
-                       onPrev: { Task { await engine.navigateWord(.prev) } },
-                       onShrink: { Task { await engine.shrinkSelection() } },
-                       onGrow: { Task { await engine.expandSelection() } },
-                       onNext: { Task { await engine.navigateWord(.next) } },
-                       autoAdvanceInterval: settingsStore.settings.autoAdvanceInterval
+                       onPrev: { engine.stopAutoAdvance(); Task { await engine.navigateWord(.prev) } },
+                       onShrink: { engine.stopAutoAdvance(); Task { await engine.shrinkSelection() } },
+                       onGrow: { engine.stopAutoAdvance(); Task { await engine.expandSelection() } },
+                       onNext: { engine.stopAutoAdvance(); Task { await engine.navigateWord(.next) } },
+                       onToggleAutoAdvance: { engine.toggleAutoAdvance(interval: settingsStore.settings.autoAdvanceInterval) },
+                       isAutoAdvancing: engine.isAutoAdvancing
                    )
                    .transition(.opacity)
                } else if let progression = engine.currentProgression {
@@ -137,7 +153,8 @@ struct ReaderView: View {
            }
            .frame(maxWidth: ReaderConstants.Dictionary.popoverMaxWidth, maxHeight: .infinity, alignment: .center)
            .padding(.top)
-           .frame(height: 28)
+           .padding(.bottom, isMac ? 8 : 0)
+           .frame(height: isMac ? 36 : 28)
        }
         .animation(
             .spring(
@@ -160,7 +177,7 @@ struct ReaderView: View {
         )
         .onAppear {
             guard !didSync else { return }
-            chrome.hideStatusBar = !showChrome
+            chrome.hideStatusBar = isMac ? false : !showChrome
             didSync = true
         }
         .task {
@@ -188,10 +205,11 @@ struct ReaderView: View {
 
                 engine.installInputObservers(
                     onSingleTap: {
-                        // Single tap will dismiss highlight/dict if present, otherwise toggle chrome.
+                        if showChapters { showChapters = false; return }
+                        if showSettings { showSettings = false; return }
                         if engine.currentWordHit != nil {
                             engine.closeDictionaryAndClearHighlight()
-                        } else {
+                        } else if !isMac {
                             // Toggle chrome on any single tap
                             withAnimation(.easeInOut) {
                                 showChrome.toggle()
@@ -203,24 +221,16 @@ struct ReaderView: View {
             }
         }
         .errorAlert(title: "Failed to Open Book", error: $engine.openError)
-        .sheet(isPresented: $showChapters) {
-            TableOfContentsSheet(
-                publication: engine.publication,
-                book: book,
-                coverImage: catalog.coverImage(for: book),
-                onSelect: {
-                    link in
-                    Task {
-                        await engine.go(to: link)
-                    }
-                }
-            )
-            .presentationDetents([.large])
-        }
-        .sheet(isPresented: $showSettings) {
-            SettingsSheet()
-                .presentationDetents([.medium, .large])
-        }
+        .modifier(TOCPresentation(
+            isPresented: $showChapters,
+            publication: engine.publication,
+            book: book,
+            coverImage: catalog.coverImage(for: book),
+            onSelect: { link in
+                Task { await engine.go(to: link) }
+            }
+        ))
+        .modifier(SettingsPresentation(isPresented: $showSettings))
     }
 }
 
@@ -239,9 +249,11 @@ struct ReaderChromeModifier: SwiftUI.ViewModifier {
     // Namespace collision between SwiftUI and ReadiumShared Content!
     typealias Content = SwiftUI._ViewModifier_Content<ReaderChromeModifier>
 
+    private var isMac: Bool { ProcessInfo.processInfo.isMacCatalystApp }
+
     func body(content: Content) -> some View {
         content
-            .statusBarHidden(!showChrome)
+            .statusBarHidden(isMac ? false : !showChrome)
             .toolbar {
                 ToolbarItemGroup(placement: .topBarLeading) {
                     if showReturnButton {
@@ -253,11 +265,13 @@ struct ReaderChromeModifier: SwiftUI.ViewModifier {
                 ToolbarItem(placement: .principal) {
                     // Title acts like a button to open chapters
                     Button {
-                        UIImpactFeedbackGenerator(style: .light)
-                            .impactOccurred()
-                        withAnimation(.easeInOut) {
-                            showChrome = true
-                            chrome.hideStatusBar = false
+                        if !isMac {
+                            UIImpactFeedbackGenerator(style: .light)
+                                .impactOccurred()
+                            withAnimation(.easeInOut) {
+                                showChrome = true
+                                chrome.hideStatusBar = false
+                            }
                         }
                         showChapters = true
                     } label: {
@@ -265,7 +279,7 @@ struct ReaderChromeModifier: SwiftUI.ViewModifier {
                             Text(title).lineLimit(1)
                                 .font(.body)
                                 .foregroundStyle(.secondary)
-                            Image(systemName: "chevron.right")  // subtle disclosure cue
+                            Image(systemName: "chevron.right")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -276,7 +290,6 @@ struct ReaderChromeModifier: SwiftUI.ViewModifier {
                 }
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     if showChrome {
-                        // Reader interaction mode toggle
                         Button {
                             settingsStore.settings.interactionMode.toggle()
                         } label: {
@@ -295,7 +308,7 @@ struct ReaderChromeModifier: SwiftUI.ViewModifier {
                     }
                 }
             }
-            .navigationBarBackButtonHidden(!showChrome)
+            .navigationBarBackButtonHidden(isMac ? false : !showChrome)
     }
 }
 
@@ -318,5 +331,61 @@ extension View {
                 onReturn: onReturn
             )
         )
+    }
+}
+
+// MARK: - TOC Presentation (popover on Mac, sheet on iOS)
+
+private struct TOCPresentation: ViewModifier {
+    @Binding var isPresented: Bool
+    let publication: Publication?
+    let book: BookItem
+    let coverImage: UIImage?
+    let onSelect: (RLink) -> Void
+
+    @ViewBuilder
+    func body(content: SwiftUI._ViewModifier_Content<Self>) -> some View {
+        if ProcessInfo.processInfo.isMacCatalystApp {
+            content.popover(isPresented: $isPresented, arrowEdge: .top) {
+                TableOfContentsSheet(
+                    publication: publication,
+                    book: book,
+                    coverImage: coverImage,
+                    onSelect: onSelect
+                )
+                .frame(width: 320, height: 500)
+            }
+        } else {
+            content.sheet(isPresented: $isPresented) {
+                TableOfContentsSheet(
+                    publication: publication,
+                    book: book,
+                    coverImage: coverImage,
+                    onSelect: onSelect
+                )
+                .presentationDetents([.large])
+            }
+        }
+    }
+}
+
+// MARK: - Settings Presentation (popover on Mac, sheet on iOS)
+
+private struct SettingsPresentation: ViewModifier {
+    @Binding var isPresented: Bool
+
+    @ViewBuilder
+    func body(content: SwiftUI._ViewModifier_Content<Self>) -> some View {
+        if ProcessInfo.processInfo.isMacCatalystApp {
+            content.popover(isPresented: $isPresented, arrowEdge: .top) {
+                SettingsSheet()
+                    .frame(width: 360, height: 480)
+            }
+        } else {
+            content.sheet(isPresented: $isPresented) {
+                SettingsSheet()
+                    .presentationDetents([.medium, .large])
+            }
+        }
     }
 }
