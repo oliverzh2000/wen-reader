@@ -135,7 +135,7 @@ struct DictionaryPopover: View {
 
                 if let entry = currentEntry {
                     Text(entry.accentedPinyin.joined(separator: " "))
-                        .font(.headline)
+                        .font(.title3)
                         .bold()
                         .foregroundStyle(.secondary)
                 }
@@ -160,11 +160,11 @@ struct DictionaryPopover: View {
 
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text(primary)
-                        .font(.title2)
+                        .font(.title)
 
                     if secondary != primary {
                         Text("[\(maskedSecondary(primary: primary, secondary: secondary))]")
-                            .font(.title2)
+                            .font(.title)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -220,7 +220,7 @@ struct DictionaryPopover: View {
                                         // putting "CL:" + SenseView in an HStack.
                                         HStack(alignment: .firstTextBaseline, spacing: 4) {
                                             Text("CL:")
-                                                .font(.caption)
+                                                .font(.body)
                                                 .fontWeight(.medium)
                                                 .foregroundStyle(.secondary)
 
